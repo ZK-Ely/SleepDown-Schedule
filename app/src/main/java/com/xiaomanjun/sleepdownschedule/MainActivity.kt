@@ -3,8 +3,7 @@ package com.xiaomanjun.sleepdownschedule
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 
 import android.app.ActivityManager
 import android.content.Context
@@ -24,9 +23,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -70,34 +66,19 @@ class MainActivity : ComponentActivity() {
             )
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
             val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
-            var courseEditorHdrSuspended by remember { mutableStateOf(false) }
-            ProvideCourseHdrUi(
-                window = window,
-                suspended = courseEditorHdrSuspended,
-                enabled = config.courseCardGlassEnabled && config.courseCardOutlineLightEnabled &&
-                    config.hasAnyWallpaper()
-            ) {
-                CourseScheduleTheme(config = config) {
-                    CourseScheduleAppUi(
-                        viewModel = viewModel,
-                        onCourseEditorVisibilityChange = { visible ->
-                            courseEditorHdrSuspended = visible
-                            if (visible && Build.VERSION.SDK_INT >= 35 &&
-                                window.colorMode == android.content.pm.ActivityInfo.COLOR_MODE_HDR) {
-                                window.desiredHdrHeadroom = 1f
-                            }
-                        },
-                        externalIcsUri = externalIcsUri,
-                        onExternalIcsConsumed = { consumed ->
-                            pendingExternalIcsUri.compareAndSet(consumed, null)
-                        },
-                        onStartupContentReady = {
-                            if (startupContentReady.compareAndSet(false, true)) {
-                                contentRoot.postInvalidateOnAnimation()
-                            }
+            CourseScheduleTheme(config = config) {
+                CourseScheduleAppUi(
+                    viewModel = viewModel,
+                    externalIcsUri = externalIcsUri,
+                    onExternalIcsConsumed = { consumed ->
+                        pendingExternalIcsUri.compareAndSet(consumed, null)
+                    },
+                    onStartupContentReady = {
+                        if (startupContentReady.compareAndSet(false, true)) {
+                            contentRoot.postInvalidateOnAnimation()
                         }
-                    )
-                }
+                    }
+                )
             }
         }
     }

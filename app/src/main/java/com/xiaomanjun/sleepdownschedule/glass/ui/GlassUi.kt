@@ -814,8 +814,7 @@ internal fun Modifier.verticalGlassAccent(
     intensity: Float = 1f,
     expanded: Boolean = false,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
-    surroundingEdgeGlow: Boolean = false,
-    hdrEdgeGlow: Boolean = false
+    surroundingEdgeGlow: Boolean = false
 ): Modifier {
     val bounds = morphAllocation?.localBounds()
     val clipShape = morphAllocation?.let { it.envelope.insetShapeFor(it.geometry()) } ?: shape
@@ -834,35 +833,23 @@ internal fun Modifier.verticalGlassAccent(
                 val edgeMesh = if (surroundingEdgeGlow) courseEdgeGlowMesh(
                     bounds ?: Rect(Offset.Zero, size), 20.dp.toPx(), edgeColor, edgeStrength
                 ) else null
-                // Screen adds the course's colored light without darkening any backdrop channel.
-                // Apply the same lighting model in day/week views and light/dark glass styles.
+                // Kyant's HighlightStyle uses Plus to add light. Feed it the course RGB from
+                // the cached mesh in both views/styles; white here is only a neutral multiplier.
                 val edgePaint = Paint().apply {
                     color = Color.White
-                    blendMode = BlendMode.Screen
+                    blendMode = BlendMode.Plus
                 }
-                val lightBounds = bounds ?: Rect(Offset.Zero, size)
-                val hdrRadius = morphAllocation?.geometry()?.cornerRadiusPx
-                    ?: (shape as? RoundedRectangle)?.cornerRadius?.toPx()
-                val hdrPaint = if (hdrEdgeGlow && surroundingEdgeGlow && hdrRadius != null &&
-                    Build.VERSION.SDK_INT >= 35 && lightBounds.width > 0f && lightBounds.height > 0f) {
-                    courseHdrLightPaint(edgeColor, lightBounds, hdrRadius, 20.dp.toPx(), edgeStrength)
-                } else null
-                val colorBlend = if (surroundingEdgeGlow) BlendMode.Screen else BlendMode.Plus
                 onDrawBehind {
                     if (bounds == null) {
-                        drawVerticalGlassAccent(brushes, colorBlend, shadeTop = !surroundingEdgeGlow)
+                        drawVerticalGlassAccent(brushes, BlendMode.Plus, shadeTop = !surroundingEdgeGlow)
                     } else {
                         inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
-                            drawVerticalGlassAccent(brushes, colorBlend, shadeTop = !surroundingEdgeGlow)
+                            drawVerticalGlassAccent(brushes, BlendMode.Plus, shadeTop = !surroundingEdgeGlow)
                         }
                     }
                     // Vertex interpolation gives a continuous soft falloff in one cached draw;
                     // no per-card blur texture, runtime shader or stacked hard strokes.
                     if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
-                    // Analytic top/bottom feathering; no backdrop sample or extra offscreen layer.
-                    if (hdrPaint != null) {
-                        drawContext.canvas.drawRect(lightBounds, hdrPaint)
-                    }
                 }
             }
             .border(
@@ -902,8 +889,7 @@ internal fun VerticalGlassAccentOverlay(
             intensity = intensity,
             expanded = expanded,
             morphAllocation = morphAllocation,
-            surroundingEdgeGlow = surroundingEdgeGlow,
-            hdrEdgeGlow = LocalCourseHdrUi.current
+            surroundingEdgeGlow = surroundingEdgeGlow
         )
     )
 }
