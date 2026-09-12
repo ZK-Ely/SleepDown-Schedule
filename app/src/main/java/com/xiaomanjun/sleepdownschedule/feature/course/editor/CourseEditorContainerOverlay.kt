@@ -45,6 +45,8 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
@@ -85,6 +87,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -211,9 +214,8 @@ data class CourseEditorOverlayRequest(
 
 
 /**
- * An elliptically compensated outline that still advertises itself as CornerBasedShape, which is
- * the contract required by the liquid lens shader. The clip uses independent X/Y radii so a tall
- * week card and a wide day card both meet their source snapshot without a one-frame corner jump.
+ * Keep the same continuous rounded outline at every progress, including the settled endpoints.
+ * CornerBasedShape also supplies density-aware radii to the downsampled liquid lens shader.
  */
 internal class CourseEditorMorphCornerShape(
     private val radiusX: Float,
@@ -233,19 +235,13 @@ internal class CourseEditorMorphCornerShape(
         bottomStart: Float,
         layoutDirection: LayoutDirection
     ): Outline {
-        val path = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
-            android.graphics.RectF(0f, 0f, size.width, size.height), radiusX, radiusY
-        )
+        val base = RoundedRectangle(topStart.dp).createOutline(size, layoutDirection, Density(1f))
+        if (taper == 0f) return base
+        val path = Path().apply { addOutline(base) }.asAndroidPath()
         if (taper != 0f && size.width > 0f && size.height > 0f) {
-            val topInset = taper.coerceAtLeast(0f) * size.width
-            val bottomInset = (-taper).coerceAtLeast(0f) * size.width
-            val matrix = android.graphics.Matrix()
-            matrix.setPolyToPoly(
-                floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height), 0,
-                floatArrayOf(topInset, 0f, size.width - topInset, 0f,
-                    size.width - bottomInset, size.height, bottomInset, size.height), 0, 4
-            )
-            path.transform(matrix)
+            path.transform(Matrix().apply {
+                setValues(courseEditorTaperTransform(size.width, size.height, taper))
+            })
         }
         return Outline.Generic(path.asComposePath())
     }
@@ -265,6 +261,28 @@ internal class CourseEditorMorphCornerShape(
         bottomEnd = bottomEnd,
         bottomStart = bottomStart
     )
+}
+
+private fun Modifier.courseEditorContentTaper(taper: Float): Modifier = drawWithCache {
+    val transform = if (taper == 0f) null else Matrix().apply {
+        setValues(courseEditorTaperTransform(size.width, size.height, taper))
+    }
+    onDrawWithContent {
+        if (transform == null) {
+            drawContent()
+        } else {
+            // Apply the shell's projection to existing draw layers, without remeasuring fields
+            // or allocating another full-form snapshot/offscreen texture.
+            val canvas = drawContext.canvas.nativeCanvas
+            val saveCount = canvas.save()
+            try {
+                canvas.concat(transform)
+                drawContent()
+            } finally {
+                canvas.restoreToCount(saveCount)
+            }
+        }
+    }
 }
 
 @Composable
@@ -600,13 +618,14 @@ internal fun CourseEditorContainerOverlayHost(
             .coerceIn(6.dp.toPx(), 36.dp.toPx())
             .toDp()
     }
-    val taper = if (hasSourceTransform && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
-        courseEditorOpeningTaper(rawProgress, sourceRect.center.y - targetRect.center.y,
+    // A copy can land elsewhere, but its upper/lower taper still follows the opening source.
+    val openingSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
+    val taper = if (openingSource != null && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
+        courseEditorOpeningTaper(rawProgress, openingSource.center.y - targetRect.center.y,
             targetRect.height, closing = closingMorph)
     } else 0f
     val shellShape = remember(corner, density.density, taper) {
-        if (taper == 0f) RoundedRectangle(corner)
-        else with(density) {
+        with(density) {
             CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper, sourceDensity = density.density)
         }
     }
@@ -684,6 +703,7 @@ internal fun CourseEditorContainerOverlayHost(
                     .fillMaxSize()
                     .then(if (materialAllocation != null) Modifier.glassMorphContent(materialAllocation) else Modifier)
                     .clip(shellShape)
+                    .courseEditorContentTaper(taper)
             ) {
                 if (editorContentMounted) {
                     CourseEditorScaledContentLayer(

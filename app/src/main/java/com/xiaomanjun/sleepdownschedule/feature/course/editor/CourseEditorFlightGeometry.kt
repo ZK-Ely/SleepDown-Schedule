@@ -6,7 +6,6 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import kotlin.math.abs
-import kotlin.math.pow
 import kotlin.math.sign
 import kotlin.math.roundToInt
 
@@ -50,15 +49,32 @@ data class CourseEditorWeekGrid(
     }
 }
 
-/** The leading edge opens first; the trailing edge catches up with zero velocity at both ends. */
+/** Establish a gentle taper early, then restore it evenly over the rest of either animation. */
 internal fun courseEditorOpeningTaper(
     progress: Float, sourceDeltaY: Float, targetHeight: Float, closing: Boolean = false
 ): Float {
     val p = progress.coerceIn(0f, 1f)
-    val envelope = 16f * p * p * (1f - p).pow(2)
+    val elapsed = if (closing) 1f - p else p
+    val entry = (elapsed / 0.12f).coerceIn(0f, 1f)
+    val envelope = entry * entry * (3f - 2f * entry) * (1f - elapsed)
     val travel = (abs(sourceDeltaY) / targetHeight.coerceAtLeast(1f)).coerceIn(0f, 1f)
-    val direction = if (closing) 1f else -1f
-    return direction * sign(sourceDeltaY) * 0.32f * envelope * kotlin.math.sqrt(travel)
+    return -sign(sourceDeltaY) * 0.16f * envelope * kotlin.math.sqrt(travel)
+}
+
+/** Shared projective transform for the shell outline and everything drawn inside it. */
+internal fun courseEditorTaperTransform(width: Float, height: Float, taper: Float): FloatArray {
+    if (width <= 0f || height <= 0f || taper == 0f) {
+        return floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+    }
+    val topInset = taper.coerceIn(0f, 0.45f)
+    val bottomInset = (-taper).coerceIn(0f, 0.45f)
+    val topWidth = 1f - 2f * topInset
+    val perspective = topWidth / (1f - 2f * bottomInset)
+    return floatArrayOf(
+        topWidth, width * (bottomInset * perspective - topInset) / height, topInset * width,
+        0f, perspective, 0f,
+        0f, (perspective - 1f) / height, 1f
+    )
 }
 
 /** Uses the measured source column, so density, hidden weekends and scroll offset stay aligned. */

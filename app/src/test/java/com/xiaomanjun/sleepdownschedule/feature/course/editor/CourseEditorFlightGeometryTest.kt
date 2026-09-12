@@ -10,11 +10,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorFlightGeometryTest {
-    @Test fun closeTapersTowardItsDestinationAndSettlesAtBothEndpoints() {
+    @Test fun closeKeepsOpeningOrientationAndSettlesAtBothEndpoints() {
         for (delta in listOf(-400f, 400f)) {
             for (step in 0..100) {
                 val p = step / 100f
-                assertEquals(-courseEditorOpeningTaper(p, delta, 600f),
+                assertEquals(courseEditorOpeningTaper(1f - p, delta, 600f),
                     courseEditorOpeningTaper(p, delta, 600f, closing = true), 0.00001f)
             }
             assertEquals(0f, courseEditorOpeningTaper(1f, delta, 600f, closing = true), 0f)
@@ -29,15 +29,76 @@ class CourseEditorFlightGeometryTest {
         assertEquals(56f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
     }
 
-    @Test fun strongerTaperPreservesPositiveLeadingAndTrailingWidths() {
+    @Test fun gentleTaperPreservesAtLeastSeventyTwoPercentOfTheNarrowEdge() {
         for (step in 0..100) {
             for (delta in listOf(-2000f, -300f, 0f, 300f, 2000f)) {
                 val taper = courseEditorOpeningTaper(step / 100f, delta, 600f)
                 assertTrue(taper.isFinite())
-                assertTrue("Taper must not fold the shell inside out", kotlin.math.abs(taper) < 0.5f)
+                assertTrue("Keep the narrow edge close to the normal width", kotlin.math.abs(taper) <= 0.145f)
             }
         }
-        assertTrue(kotlin.math.abs(courseEditorOpeningTaper(0.5f, 300f, 600f)) > 0.2f)
+        assertTrue(kotlin.math.abs(courseEditorOpeningTaper(0.5f, 300f, 600f)) in 0.04f..0.08f)
+    }
+
+    @Test fun recoveryIsEvenlyDistributedAfterTheInitialTaper() {
+        for (delta in listOf(-400f, 400f)) {
+            val samples = listOf(0.2f, 0.4f, 0.6f, 0.8f, 1f).map {
+                kotlin.math.abs(courseEditorOpeningTaper(it, delta, 600f))
+            }
+            val expectedDrop = samples.first() / 4f
+            samples.zipWithNext().forEach { (before, after) ->
+                assertEquals(expectedDrop, before - after, 0.00001f)
+            }
+            assertTrue(kotlin.math.abs(courseEditorOpeningTaper(0.12f, delta, 600f)) > samples.first())
+        }
+    }
+
+    @Test fun sharedProjectionMapsEveryShellCornerAndKeepsInteriorRowsInside() {
+        val width = 360f
+        val height = 600f
+        for (taper in listOf(-0.14f, 0f, 0.14f)) {
+            val matrix = courseEditorTaperTransform(width, height, taper)
+            val top = taper.coerceAtLeast(0f) * width
+            val bottom = (-taper).coerceAtLeast(0f) * width
+            assertMappedPoint(matrix, 0f, 0f, top, 0f)
+            assertMappedPoint(matrix, width, 0f, width - top, 0f)
+            assertMappedPoint(matrix, 0f, height, bottom, height)
+            assertMappedPoint(matrix, width, height, width - bottom, height)
+            var previousY = -1f
+            for (row in 0..20) {
+                val point = project(matrix, width / 2f, height * row / 20f)
+                assertEquals(width / 2f, point.x, 0.001f)
+                assertTrue(point.y > previousY)
+                previousY = point.y
+            }
+        }
+    }
+
+    @Test fun projectionIsIdenticalInFullAndHalfResolutionCoordinates() {
+        for (taper in listOf(-0.14f, 0.14f)) {
+            val full = courseEditorTaperTransform(700f, 1200f, taper)
+            val half = courseEditorTaperTransform(350f, 600f, taper)
+            for (row in 0..10) {
+                val original = project(full, 120f, row * 120f)
+                val sampled = project(half, 60f, row * 60f)
+                assertEquals(original.x / 2f, sampled.x, 0.001f)
+                assertEquals(original.y / 2f, sampled.y, 0.001f)
+            }
+        }
+        assertArrayEquals(floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f),
+            courseEditorTaperTransform(0f, 0f, 0.14f), 0f)
+    }
+
+    private fun project(matrix: FloatArray, x: Float, y: Float): Offset {
+        val denominator = matrix[6] * x + matrix[7] * y + matrix[8]
+        return Offset((matrix[0] * x + matrix[1] * y + matrix[2]) / denominator,
+            (matrix[3] * x + matrix[4] * y + matrix[5]) / denominator)
+    }
+
+    private fun assertMappedPoint(matrix: FloatArray, x: Float, y: Float, expectedX: Float, expectedY: Float) {
+        val actual = project(matrix, x, y)
+        assertEquals(expectedX, actual.x, 0.001f)
+        assertEquals(expectedY, actual.y, 0.001f)
     }
 
     @Test fun upperAndLowerSourcesHaveOppositeTrailingEdgesAndUndistortedEndpoints() {
