@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
@@ -25,6 +26,9 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
+
+// Chromium-backed pages retain SleepDown's original blur + alpha-mask composition.
+internal val LocalLegacyProgressiveBlur = staticCompositionLocalOf { false }
 
 enum class ProgressiveBlurDirection {
     TopToBottom,
@@ -84,6 +88,7 @@ fun Modifier.progressiveBackdropBlur(
     topTintFadeEnd: Float = 1f,
     fallbackTintStops: List<Pair<Float, Color>>
 ): Modifier {
+    val useLegacyBlur = LocalLegacyProgressiveBlur.current
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
         val material = remember(blurRadius, tintIntensity) {
             // Pure progressive blur: strip the default highlight/shadow/inner-shadow decorations
@@ -105,10 +110,10 @@ fun Modifier.progressiveBackdropBlur(
         val blurShapeBlock: () -> Shape = remember { { RectangleShape } }
         val blurEffects: BackdropEffectScope.() -> Unit = remember(
             blurRadius, direction, tintColor, tintIntensity,
-            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd
+            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd, useLegacyBlur
         ) {
             {
-                if (direction == ProgressiveBlurDirection.TopToBottom) {
+                if (direction == ProgressiveBlurDirection.TopToBottom && !useLegacyBlur) {
                     // True variable-radius blur, sampled at full resolution. Backdrop 2 owns
                     // the shader cache per node, so there is no process-global shader registry.
                     nexioProgressiveBlur(blurRadius.toPx(), tintColor, tintIntensity)

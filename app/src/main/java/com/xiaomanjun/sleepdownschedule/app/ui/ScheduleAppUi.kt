@@ -7527,6 +7527,7 @@ open class EduImportActivityHost : ComponentActivity() {
             )
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
+                    CompositionLocalProvider(LocalLegacyProgressiveBlur provides true) {
                     DetailActivityScaffold(
                         title = adapter?.school?.name ?: "教务导入",
                         config = state.config,
@@ -7556,6 +7557,7 @@ open class EduImportActivityHost : ComponentActivity() {
                                 onParsed = { draft -> pendingDraft = draft }
                             )
                         }
+                    }
                     }
                 } else {
                     val previewDraft = checkNotNull(pendingDraft)
