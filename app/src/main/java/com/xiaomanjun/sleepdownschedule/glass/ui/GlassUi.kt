@@ -814,7 +814,8 @@ internal fun Modifier.verticalGlassAccent(
     intensity: Float = 1f,
     expanded: Boolean = false,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
-    surroundingEdgeGlow: Boolean = false
+    surroundingEdgeGlow: Boolean = false,
+    hdrEdgeGlow: Boolean = false
 ): Modifier {
     val bounds = morphAllocation?.localBounds()
     val clipShape = morphAllocation?.let { it.envelope.insetShapeFor(it.geometry()) } ?: shape
@@ -839,6 +840,13 @@ internal fun Modifier.verticalGlassAccent(
                     color = Color.White
                     blendMode = BlendMode.Screen
                 }
+                val hdrPaint = if (hdrEdgeGlow && surroundingEdgeGlow && Build.VERSION.SDK_INT >= 35) {
+                    courseHdrLightPaint(edgeColor)
+                } else null
+                val hdrMesh = if (hdrPaint != null) courseEdgeGlowMesh(
+                    bounds ?: Rect(Offset.Zero, size), 12.dp.toPx(), Color.White, edgeStrength,
+                    bottomEdge = true, peakAlpha = 0.40f
+                ) else null
                 val colorBlend = if (surroundingEdgeGlow) BlendMode.Screen else BlendMode.Plus
                 onDrawBehind {
                     if (bounds == null) {
@@ -851,6 +859,11 @@ internal fun Modifier.verticalGlassAccent(
                     // Vertex interpolation gives a continuous soft falloff in one cached draw;
                     // no per-card blur texture, runtime shader or stacked hard strokes.
                     if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
+                    // The small HDR core shares the existing cached geometry route. No extra
+                    // capture, blur, offscreen surface or frame-driven shader allocation.
+                    if (hdrMesh != null && hdrPaint != null) {
+                        drawContext.canvas.drawVertices(hdrMesh, BlendMode.Modulate, hdrPaint)
+                    }
                 }
             }
             .border(
@@ -890,7 +903,8 @@ internal fun VerticalGlassAccentOverlay(
             intensity = intensity,
             expanded = expanded,
             morphAllocation = morphAllocation,
-            surroundingEdgeGlow = surroundingEdgeGlow
+            surroundingEdgeGlow = surroundingEdgeGlow,
+            hdrEdgeGlow = LocalCourseHdrUi.current
         )
     )
 }

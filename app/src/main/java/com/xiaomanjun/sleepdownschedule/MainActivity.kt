@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
 
 import android.app.ActivityManager
 import android.content.Context
@@ -66,19 +67,25 @@ class MainActivity : ComponentActivity() {
             )
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
             val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
-            CourseScheduleTheme(config = config) {
-                CourseScheduleAppUi(
-                    viewModel = viewModel,
-                    externalIcsUri = externalIcsUri,
-                    onExternalIcsConsumed = { consumed ->
-                        pendingExternalIcsUri.compareAndSet(consumed, null)
-                    },
-                    onStartupContentReady = {
-                        if (startupContentReady.compareAndSet(false, true)) {
-                            contentRoot.postInvalidateOnAnimation()
+            ProvideCourseHdrUi(
+                window = window,
+                enabled = config.courseCardGlassEnabled && config.courseCardOutlineLightEnabled &&
+                    config.hasAnyWallpaper()
+            ) {
+                CourseScheduleTheme(config = config) {
+                    CourseScheduleAppUi(
+                        viewModel = viewModel,
+                        externalIcsUri = externalIcsUri,
+                        onExternalIcsConsumed = { consumed ->
+                            pendingExternalIcsUri.compareAndSet(consumed, null)
+                        },
+                        onStartupContentReady = {
+                            if (startupContentReady.compareAndSet(false, true)) {
+                                contentRoot.postInvalidateOnAnimation()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
