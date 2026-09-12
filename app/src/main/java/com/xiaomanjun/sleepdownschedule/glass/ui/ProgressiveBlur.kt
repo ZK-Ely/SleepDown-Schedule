@@ -52,6 +52,7 @@ fun ProgressiveBackdropBlur(
     topMaskFadeEnd: Float = 1f,
     topTintFadeStart: Float = 0.35f,
     topTintFadeEnd: Float = 1f,
+    radiusFadeStart: Float = 0f,
     fallbackTintStops: List<Pair<Float, Color>>
 ) {
     Box(
@@ -69,6 +70,7 @@ fun ProgressiveBackdropBlur(
                 topMaskFadeEnd = topMaskFadeEnd,
                 topTintFadeStart = topTintFadeStart,
                 topTintFadeEnd = topTintFadeEnd,
+                radiusFadeStart = radiusFadeStart,
                 fallbackTintStops = fallbackTintStops
             )
     )
@@ -86,6 +88,7 @@ fun Modifier.progressiveBackdropBlur(
     topMaskFadeEnd: Float = 1f,
     topTintFadeStart: Float = 0.35f,
     topTintFadeEnd: Float = 1f,
+    radiusFadeStart: Float = 0f,
     fallbackTintStops: List<Pair<Float, Color>>
 ): Modifier {
     val useLegacyBlur = LocalLegacyProgressiveBlur.current
@@ -110,13 +113,13 @@ fun Modifier.progressiveBackdropBlur(
         val blurShapeBlock: () -> Shape = remember { { RectangleShape } }
         val blurEffects: BackdropEffectScope.() -> Unit = remember(
             blurRadius, direction, tintColor, tintIntensity,
-            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd, useLegacyBlur
+            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd, radiusFadeStart, useLegacyBlur
         ) {
             {
                 if (direction == ProgressiveBlurDirection.TopToBottom && !useLegacyBlur) {
                     // True variable-radius blur, sampled at full resolution. Backdrop 2 owns
                     // the shader cache per node, so there is no process-global shader registry.
-                    nexioProgressiveBlur(blurRadius.toPx(), tintColor, tintIntensity)
+                    nexioProgressiveBlur(blurRadius.toPx(), tintColor, tintIntensity, radiusFadeStart)
                 } else {
                 blur(blurRadius.toPx())
                 runtimeShaderEffect(

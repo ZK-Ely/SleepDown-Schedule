@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.runtimeShaderEffect
 
-internal fun BackdropEffectScope.nexioProgressiveBlur(radius: Float, tint: Color, intensity: Float) {
+internal fun BackdropEffectScope.nexioProgressiveBlur(radius: Float, tint: Color, intensity: Float, fadeStart: Float) {
     padding = radius
     val bufferW = size.width + 2f * padding
     val bufferH = size.height + 2f * padding
@@ -15,6 +15,7 @@ internal fun BackdropEffectScope.nexioProgressiveBlur(radius: Float, tint: Color
         setFloatUniform("contentSize", size.width, size.height)
         setFloatUniform("bufferSize", bufferW, bufferH)
         setFloatUniform("maxRadius", radius)
+        setFloatUniform("radiusFadeStart", fadeStart.coerceIn(0f, 0.95f))
         setColorUniform("tint", tint)
         setFloatUniform("tintIntensity", intensity.coerceIn(0f, 1f))
     }
@@ -23,6 +24,7 @@ internal fun BackdropEffectScope.nexioProgressiveBlur(radius: Float, tint: Color
         setFloatUniform("contentSize", size.width, size.height)
         setFloatUniform("bufferSize", bufferW, bufferH)
         setFloatUniform("maxRadius", radius)
+        setFloatUniform("radiusFadeStart", fadeStart.coerceIn(0f, 0.95f))
     }
 }
 
@@ -40,6 +42,7 @@ uniform float2 contentOrigin;
 uniform float2 contentSize;
 uniform float2 bufferSize;
 uniform float maxRadius;
+uniform float radiusFadeStart;
 layout(color) uniform half4 tint;
 uniform float tintIntensity;
 
@@ -84,7 +87,7 @@ half4 progressiveBlur(float2 coord, float radius) {
 half4 main(float2 coord) {
     // 可见区域从 contentOrigin 起算，padding 边距不参与 Y 渐变
     float t = clamp((coord.y - contentOrigin.y) / max(contentSize.y, 1.0), 0.0, 1.0);
-    float u = 1.0 - smoothstep(0.0, 1.0, t);
+    float u = 1.0 - smoothstep(radiusFadeStart, 1.0, t);
     float radius = maxRadius * u;
     half4 color = progressiveBlur(coord, radius);
     // 仅末端收透明度，消掉与下方清晰内容的接缝
@@ -104,13 +107,14 @@ uniform float2 contentOrigin;
 uniform float2 contentSize;
 uniform float2 bufferSize;
 uniform float maxRadius;
+uniform float radiusFadeStart;
 
 $SOFTER_STEP
 
 half4 main(float2 coord) {
     float t = clamp((coord.y - contentOrigin.y) / max(contentSize.y, 1.0), 0.0, 1.0);
     // 与渐进模糊同一套曲线，避免两阶段半径不一致
-    float u = 1.0 - smoothstep(0.0, 1.0, t);
+    float u = 1.0 - smoothstep(radiusFadeStart, 1.0, t);
     float r = maxRadius * u * 0.18;
     if (r < 0.4) {
         return content.eval(coord);

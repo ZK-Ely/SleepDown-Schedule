@@ -2624,7 +2624,7 @@ fun CourseScheduleAppUi(
                                     homeMode == HomeMode.Week &&
                                     weekViewStyle == WeekViewStyle.BOUNDLESS
                                 ) {
-                                    homeAdaptiveMetrics.topGradientHeight
+                                    boundlessHomeTopGradientHeight(homeAdaptiveMetrics)
                                 } else if (homeMode == HomeMode.Week) {
                                     // 普通周视图用独立的顶栏模糊：不包含无界模式表头那段高度
                                     (homeAdaptiveMetrics.topOverlayHeight -
@@ -2632,6 +2632,9 @@ fun CourseScheduleAppUi(
                                 } else {
                                     homeAdaptiveMetrics.topOverlayHeight
                                 },
+                                fullBlurHeight = if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                    homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                                } else 0.dp,
                                 modifier = Modifier
                             )
                         }
@@ -4599,9 +4602,9 @@ private fun rootTopBarLayoutHeight(
         Screen.Home -> {
             val metrics = rememberHomeAdaptiveMetrics()
             if (boundlessWeekHeader) {
-                // 无界表头作为顶栏延伸，容器必须容纳 statusBar + 66dp 顶栏 + 46dp 表头，
-                // 否则大屏（topOverlayHeight 上限 132dp）会裁掉表头下半截。
-                metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                // Measure the whole visual gradient envelope, not just the header: otherwise
+                // the parent's maximum height truncates the blur before its fade-out tail.
+                boundlessHomeTopGradientHeight(metrics)
             } else {
                 metrics.topOverlayHeight
             }
@@ -4788,12 +4791,18 @@ fun settingsVisualConfig(config: ScheduleConfigEntity): ScheduleConfigEntity {
     )
 }
 
+private fun boundlessHomeTopGradientHeight(metrics: HomeAdaptiveMetrics): Dp = maxOf(
+    metrics.topGradientHeight,
+    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 56.dp
+)
+
 @Composable
 fun HomeTopGradientBlur(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
-    height: Dp = HomeTopOverlayHeight
+    height: Dp = HomeTopOverlayHeight,
+    fullBlurHeight: Dp = 0.dp
 ) {
     val lightGlass = glassUsesLightStyle(config)
     val tintColor = if (lightGlass) HomeLightGlassGradientColor else ComposeColor(0xFF111111)
@@ -4807,9 +4816,9 @@ fun HomeTopGradientBlur(
             // brush (the runtime shader path is driven by tintIntensity = 0).
             tintIntensity = 0f,
             direction = ProgressiveBlurDirection.TopToBottom,
-            // Keep the blur mostly flat (~7dp) over the whole top zone, extending past the weekday
-            // title text and the week header band; only below that does it fade out quickly. A long
-            // plateau with a short tail reads as one soft chrome gradient instead of fast steps.
+            // The Nexio radius curve needs its own plateau; alpha-mask parameters alone do not
+            // stop the blur radius from shrinking before the boundless weekday/date header.
+            radiusFadeStart = (fullBlurHeight.value / height.value).coerceIn(0f, 0.95f),
             topMaskFadeStart = 0.85f,
             topMaskFadeEnd = 1f,
             fallbackTintStops = listOf(
