@@ -17,7 +17,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas as AndroidCanvas
 import android.net.Uri
 import android.net.http.SslError
 import android.provider.Settings
@@ -47,13 +46,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -96,13 +95,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
@@ -115,7 +113,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.viewinterop.AndroidView
@@ -125,7 +122,6 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
-import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -674,12 +670,7 @@ private fun EduImportGuideMorphOverlay(
             lensAmount = 42.dp + 8.dp * synchronizedProgress,
             chromaticAberration = true,
             surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
-            shadowEnabled = true,
-            shadowStyle = Shadow(
-                radius = 22.dp,
-                offset = DpOffset(0.dp, 8.dp),
-                color = ComposeColor.Black.copy(alpha = 0.34f)
-            ),
+            shadowEnabled = false,
             highlightEnabled = true,
             shape = cardShape,
             clipToBounds = false,
@@ -907,7 +898,12 @@ private fun EduImportBrowserScreen(
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
-    var webTopEdgeBitmap by remember(adapter) { mutableStateOf<Bitmap?>(null) }
+    var webTopEdgeColor by remember(adapter) { mutableStateOf<ComposeColor?>(null) }
+    val webTopThemeColor = animateColorAsState(
+        targetValue = webTopEdgeColor ?: MaterialTheme.colorScheme.background,
+        animationSpec = tween(160),
+        label = "web-header-theme"
+    )
     var importGuideVisible by remember(adapter) { mutableStateOf(false) }
     var importGuideExpanded by remember(adapter) { mutableStateOf(false) }
     var webGestureActive by remember(adapter) { mutableStateOf(false) }
@@ -921,8 +917,17 @@ private fun EduImportBrowserScreen(
             emptyList()
         }
     }
-    val topEdgeSampleHandler = remember(adapter) { Handler(Looper.getMainLooper()) }
-    val topEdgeSampleToken = remember(adapter) { Any() }
+    val visibleWebView = rememberUpdatedState(popupWebView ?: webView)
+    val sampleHeightPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    val topEdgeSampler = remember(adapter, sampleHeightPx) {
+        WebTopEdgeSampler(sampleHeightPx, { visibleWebView.value }) {
+            webTopEdgeColor = ComposeColor(it)
+        }
+    }
+    DisposableEffect(topEdgeSampler) {
+        onDispose { topEdgeSampler.dispose() }
+    }
+    val currentTopEdgeSampler = rememberUpdatedState(topEdgeSampler)
     val requestInterceptor = remember(adapter) { ShiguangWebRequestInterceptor() }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -938,21 +943,8 @@ private fun EduImportBrowserScreen(
         normalizeEduUrl(addressText)
     }
 
-    fun scheduleWebTopEdgeSample(target: WebView) {
-        topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
-        topEdgeSampleHandler.postAtTime(
-            {
-                val width = target.width
-                if (width > 0 && target.height > 0) {
-                    Bitmap.createBitmap(width, 1, Bitmap.Config.ARGB_8888).also { bitmap ->
-                        target.draw(AndroidCanvas(bitmap))
-                        webTopEdgeBitmap = bitmap
-                    }
-                }
-            },
-            topEdgeSampleToken,
-            android.os.SystemClock.uptimeMillis() + 48L
-        )
+    fun scheduleWebTopEdgeSample() {
+        currentTopEdgeSampler.value.schedule()
     }
 
     fun loadAddress() {
@@ -1265,7 +1257,7 @@ private fun EduImportBrowserScreen(
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
-            scheduleWebTopEdgeSample(primary)
+            scheduleWebTopEdgeSample()
         }
     }
 
@@ -1310,10 +1302,15 @@ private fun EduImportBrowserScreen(
                 false
             }
             setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                scheduleWebTopEdgeSample(this)
+                scheduleWebTopEdgeSample()
                 if (webGestureActive && kotlin.math.abs(scrollY - oldScrollY) > 1) {
                     importGuideExpanded = false
                     dockHistoryExpanded = false
+                }
+            }
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                    scheduleWebTopEdgeSample()
                 }
             }
             settings.javaScriptEnabled = true
@@ -1355,7 +1352,7 @@ private fun EduImportBrowserScreen(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     view?.injectShiguangRuntime(desktopMode)
-                    view?.let(::scheduleWebTopEdgeSample)
+                    scheduleWebTopEdgeSample()
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
                     val pageUri = runCatching { Uri.parse(url) }.getOrNull()
@@ -1380,6 +1377,11 @@ private fun EduImportBrowserScreen(
                         loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
+                }
+
+                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                    super.onPageCommitVisible(view, url)
+                    scheduleWebTopEdgeSample()
                 }
 
                 override fun shouldInterceptRequest(
@@ -1517,7 +1519,6 @@ private fun EduImportBrowserScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
-            topEdgeSampleHandler.removeCallbacksAndMessages(topEdgeSampleToken)
             popupWebView?.let { popup ->
                 popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
@@ -1592,16 +1593,11 @@ private fun EduImportBrowserScreen(
                     }
                 }
         ) {
-            webTopEdgeBitmap?.let { edge ->
-                Image(
-                    bitmap = edge.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(topPadding),
-                    contentScale = ContentScale.FillBounds
-                )
-            }
+            Box(
+                Modifier.fillMaxWidth().height(topPadding).drawBehind {
+                    drawRect(webTopThemeColor.value)
+                }
+            )
             key(webViewGeneration) {
                 AndroidView(
                     modifier = Modifier
