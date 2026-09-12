@@ -6892,6 +6892,7 @@ fun PersonalizePanel(
                     Text("课程卡片液态玻璃", style = MaterialTheme.typography.labelLarge)
                     LiquidControlToggle(
                         checked = state.config.courseCardGlassEnabled && !glassLocked,
+                        compact = true,
                         onCheckedChange = {
                             onUpdateConfig(
                                 PersonalizeCardGlassChange,
@@ -6925,6 +6926,7 @@ fun PersonalizePanel(
                         Text("质感轮廓光", style = MaterialTheme.typography.labelLarge)
                         LiquidControlToggle(
                             checked = state.config.courseCardOutlineLightEnabled,
+                            compact = true,
                             onCheckedChange = {
                                 onUpdateConfig(
                                     PersonalizeCardOutlineLightChange,
@@ -6946,6 +6948,7 @@ fun PersonalizePanel(
                         Text("课程卡片高斯模糊", style = MaterialTheme.typography.labelLarge)
                         LiquidControlToggle(
                             checked = state.config.courseCardGaussianBlurEnabled && !glassLocked,
+                            compact = true,
                             onCheckedChange = {
                                 onUpdateConfig(
                                     PersonalizeCardGaussianBlurChange,
@@ -7760,7 +7763,8 @@ fun LiquidControlToggle(
     onCheckedChange: (Boolean) -> Unit,
     backdrop: Backdrop?,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val alpha = if (enabled) 1f else 0.40f
     if (backdrop != null) {
@@ -7768,13 +7772,18 @@ fun LiquidControlToggle(
             selected = { checked },
             onSelect = { if (enabled) onCheckedChange(it) },
             backdrop = backdrop,
+            compact = compact,
             modifier = modifier.graphicsLayer { this.alpha = alpha }
         )
     } else {
         Switch(
             checked = checked,
             onCheckedChange = { if (enabled) onCheckedChange(it) },
-            modifier = modifier.graphicsLayer { this.alpha = alpha }
+            modifier = modifier.graphicsLayer {
+                this.alpha = alpha
+                scaleX = if (compact) 0.8f else 1f
+                scaleY = if (compact) 0.8f else 1f
+            }
         )
     }
 }

@@ -254,6 +254,7 @@ internal fun CourseShortcutOverlay(
                 // The selection has a 1dp vertical inset; keep its radius concentric with the shell.
                 shape = RoundedRectangle(rowHeight / 2 + CourseShortcutContentPaddingDp.dp),
                 showModeSwitch = false, actionItemHeight = rowHeight, compactActions = true,
+                shadowEnabled = false,
                 modifier = Modifier
                     .offset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
                     .size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() })
