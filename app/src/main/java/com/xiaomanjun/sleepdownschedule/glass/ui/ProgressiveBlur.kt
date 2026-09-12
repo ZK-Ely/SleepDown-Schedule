@@ -108,6 +108,11 @@ fun Modifier.progressiveBackdropBlur(
             topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd
         ) {
             {
+                if (direction == ProgressiveBlurDirection.TopToBottom) {
+                    // True variable-radius blur, sampled at full resolution. Backdrop 2 owns
+                    // the shader cache per node, so there is no process-global shader registry.
+                    nexioProgressiveBlur(blurRadius.toPx(), tintColor, tintIntensity)
+                } else {
                 blur(blurRadius.toPx())
                 runtimeShaderEffect(
                     "ProgressiveBackdropBlur_${direction.name}",
@@ -121,6 +126,7 @@ fun Modifier.progressiveBackdropBlur(
                     setFloatUniform("maskFadeEnd", topMaskFadeEnd.coerceAtLeast(topMaskFadeStart + 0.01f))
                     setFloatUniform("tintFadeStart", topTintFadeStart.coerceIn(0f, 1f))
                     setFloatUniform("tintFadeEnd", topTintFadeEnd.coerceAtLeast(topTintFadeStart + 0.01f))
+                }
                 }
             }
         }

@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -812,12 +813,19 @@ internal fun Modifier.verticalGlassAccent(
     val clipShape = morphAllocation?.let { it.envelope.insetShapeFor(it.geometry()) } ?: shape
     return this
             .clip(clipShape)
-            .drawBehind {
-                if (bounds == null) {
-                    drawVerticalGlassAccent(accentColor, lightGlass, intensity, expanded)
-                } else {
-                    inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
-                        drawVerticalGlassAccent(accentColor, lightGlass, intensity, expanded)
+            .drawWithCache {
+                // Sliding changes the sampled wallpaper, not these local gradients. Retain
+                // their brushes/shaders until geometry or personalization actually changes.
+                val brushes = verticalGlassAccentBrushes(
+                    bounds?.height ?: size.height, accentColor, lightGlass, intensity, expanded
+                )
+                onDrawBehind {
+                    if (bounds == null) {
+                        drawVerticalGlassAccent(brushes)
+                    } else {
+                        inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
+                            drawVerticalGlassAccent(brushes)
+                        }
                     }
                 }
             }
@@ -861,12 +869,13 @@ internal fun VerticalGlassAccentOverlay(
     )
 }
 
-private fun DrawScope.drawVerticalGlassAccent(
+private fun verticalGlassAccentBrushes(
+    height: Float,
     accentColor: Color,
     lightGlass: Boolean,
     intensity: Float,
     expanded: Boolean
-) {
+): List<Brush> {
     // Perceptual response keeps the middle of the slider useful without allowing the
     // sampled wallpaper brightness to dictate the light-source strength.
     val lightStrength = sqrt(intensity.coerceIn(0f, 1f))
@@ -875,8 +884,8 @@ private fun DrawScope.drawVerticalGlassAccent(
     val colorRimY = if (expanded) 0.92f else 0.97f
     val whiteStartY = if (expanded) 0.72f else 0.89f
     val whiteLiftY = if (expanded) 0.88f else 0.96f
-    drawRect(
-        brush = Brush.verticalGradient(
+    return listOf(
+        Brush.verticalGradient(
             colorStops = arrayOf(
                 0f to Color.Black.copy(alpha = if (lightGlass) 0.014f else 0.022f),
                 0.18f to Color.Black.copy(alpha = if (lightGlass) 0.010f else 0.016f),
@@ -884,11 +893,9 @@ private fun DrawScope.drawVerticalGlassAccent(
                 0.46f to Color.Transparent,
                 1f to Color.Transparent
             ),
-            endY = size.height
-        )
-    )
-    drawRect(
-        brush = Brush.verticalGradient(
+            endY = height
+        ),
+        Brush.verticalGradient(
             colorStops = arrayOf(
                 0f to Color.Transparent,
                 colorStartY to Color.Transparent,
@@ -900,21 +907,24 @@ private fun DrawScope.drawVerticalGlassAccent(
                     alpha = (if (lightGlass) 0.30f else 0.34f) * lightStrength
                 )
             ),
-            endY = size.height
+            endY = height
         ),
-        blendMode = BlendMode.Plus
-    )
-    drawRect(
-        brush = Brush.verticalGradient(
+        Brush.verticalGradient(
             colorStops = arrayOf(
                 0f to Color.Transparent,
                 whiteStartY to Color.Transparent,
                 whiteLiftY to Color.White.copy(alpha = 0.042f * lightStrength),
                 1f to Color.White.copy(alpha = 0.082f * lightStrength)
             ),
-            endY = size.height
+            endY = height
         )
     )
+}
+
+private fun DrawScope.drawVerticalGlassAccent(brushes: List<Brush>) {
+    drawRect(brushes[0])
+    drawRect(brushes[1], blendMode = BlendMode.Plus)
+    drawRect(brushes[2])
 }
 
 private val StatusCapsuleBlue = Color(0xFF0A84FF)
