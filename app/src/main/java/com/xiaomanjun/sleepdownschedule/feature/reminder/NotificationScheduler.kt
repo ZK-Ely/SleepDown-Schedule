@@ -35,6 +35,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 object NotificationScheduler {
@@ -646,31 +647,38 @@ object NotificationScheduler {
     fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
         createChannel(context)
         if (!canPostNotifications(context)) return
+        startLiveUpdateService(context, liveUpdatePreviewPayload(config))
+    }
+
+    internal fun liveUpdatePreviewPayload(
+        config: ScheduleConfigEntity,
+        now: ZonedDateTime = ZonedDateTime.now()
+    ): LiveUpdatePayload {
         val previewMinutes = config.notificationLeadMinutes.coerceIn(1, 30)
-        val zone = ZoneId.systemDefault()
-        val date = LocalDate.now(zone)
-        val start = LocalTime.now(zone)
+        // Keep the date and zone attached: a late-night preview can start and end tomorrow.
+        // Reattaching today's date to LocalTime would make it expire as soon as it is posted.
+        val start = now
             .plusMinutes(previewMinutes.toLong())
             .withSecond(0)
             .withNano(0)
         val end = start.plusMinutes(45)
         val timeText = "${start.format(DateTimeFormatter.ofPattern("HH:mm"))} - ${end.format(DateTimeFormatter.ofPattern("HH:mm"))}"
-        val startMillis = date.atTime(start).atZone(zone).toInstant().toEpochMilli()
-        val endMillis = date.atTime(end).atZone(zone).toInstant().toEpochMilli()
-        startLiveUpdateService(context, LiveUpdatePayload(
+        val startMillis = start.toInstant().toEpochMilli()
+        val endMillis = end.toInstant().toEpochMilli()
+        return LiveUpdatePayload(
             name = "高等数学",
             timeText = timeText,
             location = "教学楼 A101",
             // A preview must always be dismissible even when the user has
             // disabled optional actions for real course reminders.
             showActions = true,
-            muteKey = "preview:${System.currentTimeMillis()}",
+            muteKey = "preview:${now.toInstant().toEpochMilli()}",
             muteUntil = startMillis.toString(),
             chipTextMode = config.liveUpdateChipTextMode,
             segments = listOf(LiveUpdateSegment(startMillis, endMillis)),
             duringClassEnabled = false,
             expiresAtMillis = startMillis
-        ))
+        )
     }
 
     fun liveUpdateNotification(context: Context, name: String, timeText: String, location: String, showActions: Boolean, muteKey: String, muteUntil: String, chipTextMode: LiveUpdateChipTextMode): android.app.Notification {
