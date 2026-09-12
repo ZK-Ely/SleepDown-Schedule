@@ -4791,10 +4791,10 @@ fun settingsVisualConfig(config: ScheduleConfigEntity): ScheduleConfigEntity {
     )
 }
 
-private fun boundlessHomeTopGradientHeight(metrics: HomeAdaptiveMetrics): Dp = maxOf(
-    metrics.topGradientHeight,
-    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 56.dp
-)
+// Size the tail from the actual header, rather than keeping the old 230dp minimum that
+// spreads full-strength header blur too far into the first courses on compact windows.
+private fun boundlessHomeTopGradientHeight(metrics: HomeAdaptiveMetrics): Dp =
+    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 36.dp
 
 @Composable
 fun HomeTopGradientBlur(
