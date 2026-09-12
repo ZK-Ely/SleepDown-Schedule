@@ -1545,9 +1545,9 @@ private fun EduImportBrowserScreen(
     val importGuideMountedAtRoot = floatingOverlayHost != null &&
         floatingOverlayHost.content === floatingImportGuide
 
-    // Keep the WebView at its natural position below the compact bar. A one-pixel sample of the
-    // current WebView top edge is stretched only through the producer's top-bar region, so the
-    // gradient glass keeps the page color without moving or clipping the page header itself.
+    // Keep WebView at its natural position. The multi-row theme fills the toolbar and feathers
+    // into the page, so its color never ends at a hard horizontal boundary. The existing separate
+    // toolbar blur consumer samples this producer; no extra WebView capture or blur pass is added.
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -1616,6 +1616,22 @@ private fun EduImportBrowserScreen(
                         }
                     )
                 }
+            }
+            if (topPadding > 0.dp) {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = topPadding).height(28.dp).drawBehind {
+                        val theme = webTopThemeColor.value
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to theme,
+                                0.2f to theme.copy(alpha = theme.alpha * 0.90f),
+                                0.5f to theme.copy(alpha = theme.alpha * 0.50f),
+                                0.8f to theme.copy(alpha = theme.alpha * 0.10f),
+                                1f to theme.copy(alpha = 0f)
+                            )
+                        )
+                    }
+                )
             }
         }
 
