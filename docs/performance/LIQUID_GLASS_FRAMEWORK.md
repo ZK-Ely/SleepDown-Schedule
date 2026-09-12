@@ -10,7 +10,7 @@
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
 - 大玻璃 allowlist 已包含三个首页菜单目的页、大屏个性化渐进模糊/Backdrop aura，以及稳定周视图课程卡。原 Gradle 总门控已移除，正式构建固定启用。阶段三液态动效实验及其构建开关已从生产代码删除。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
-- 课程轮廓光增加按设备能力启用的 HDR 路径：Android 15+、硬件加速、当前窗口/屏幕广色域及 HDR/SDR 亮度比能力同时满足才请求 HDR 窗口，期望 headroom 限为 2。普通彩色光仍保留；扩展亮度仅用于额外的边缘光芯，详见 [Beta5 HDR UI](2026-09-12-beta5-hdr-ui.md)。这不是帧率提升结论。
+- 课程轮廓光增加按设备能力启用的 HDR 路径：Android 15+、硬件加速、当前窗口/屏幕广色域及 HDR/SDR 亮度比能力同时满足才请求 HDR 窗口，期望 headroom 为 1.2。普通彩色光仍保留；扩展亮度仅用于上下边缘，通过浮点颜色与覆盖度渐隐、Lighten 混合保留课程色相。打开编辑器立即撤销提亮并更新背景缓存标识，详见 [HDR 色彩跟进](2026-09-12-beta5-hdr-hue.md)。这不是帧率提升结论。
 
 ## 上游约束与本地决策
 
