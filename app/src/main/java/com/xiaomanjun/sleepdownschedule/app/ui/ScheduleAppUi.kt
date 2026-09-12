@@ -2500,6 +2500,7 @@ fun CourseScheduleAppUi(
         // liquid sampling coordinates aligned without blurring the foreground panel itself.
         HomeBackgroundZoomLayer(
             zoom = homeOverlayBackgroundZoom,
+            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -4440,6 +4441,7 @@ fun CourseScheduleAppUi(
 @Composable
 private fun HomeBackgroundZoomLayer(
     zoom: () -> Float,
+    dimProgress: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -4447,6 +4449,13 @@ private fun HomeBackgroundZoomLayer(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
+            .drawWithContent {
+                drawContent()
+                // Draw after the blurred/zoomed home, outside its cached sampling layers.
+                // One shared scrim avoids stacking darkness when an overlay hands off to another.
+                val dimAlpha = 0.08f * dimProgress().coerceIn(0f, 1f)
+                if (dimAlpha > 0f) drawRect(ComposeColor.Black.copy(alpha = dimAlpha))
+            }
             .graphicsLayer {
                 val currentZoom = zoom()
                 scaleX = currentZoom
