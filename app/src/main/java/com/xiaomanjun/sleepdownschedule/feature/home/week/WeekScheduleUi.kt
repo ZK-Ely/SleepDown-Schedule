@@ -368,13 +368,17 @@ internal fun SinglePillWeekScheduleScreen(
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val now = LocalTime.now()
     val currentPeriod = currentTimelinePeriod(state.periods, now)
-    val weekBuckets = remember(state.courses, displayWeek) {
-        weekCourseBuckets(state.courses, displayWeek)
+    // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
+    // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
+    val weekBucketCache = remember(state.courses) { mutableMapOf<Int, WeekCourseBuckets>() }
+    fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
+        weekCourseBuckets(state.courses, week)
     }
+    val weekBuckets = bucketsForWeek(displayWeek)
     val visibleCourses = weekBuckets.visibleCourses
     val supplementaryRowCount = remember(state.courses, state.periods, displayWeek) {
         (displayWeek - 1..displayWeek + 1).maxOf { week ->
-            weekCourseBuckets(state.courses, week).visibleCourses
+            bucketsForWeek(week).visibleCourses
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
                 .groupingBy { it.weekday }.eachCount().values.maxOrNull() ?: 0
         }
@@ -436,32 +440,16 @@ internal fun SinglePillWeekScheduleScreen(
         initialPage = (displayWeek - 1).coerceAtLeast(0),
         pageCount = { state.config.totalWeeks.coerceAtLeast(1) }
     )
-    LaunchedEffect(pagerState.settledPage, state.config.totalWeeks) {
-        val settledWeek = (pagerState.settledPage + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
-        if (settledWeek != displayWeek) {
-            gestureCommittedWeek = settledWeek
-            onSwipeWeek(settledWeek - displayWeek)
-        }
-    }
-    LaunchedEffect(pagerState, displayWeek, state.config.totalWeeks) {
-        snapshotFlow {
-            Triple(
-                pagerState.isScrollInProgress,
-                pagerState.settledPage,
-                pagerState.currentPage + pagerState.currentPageOffsetFraction
-            )
-        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
-            if (!scrolling) return@collect
-            val delta = pagePosition - settledPage
-            val desiredPage = when {
-                delta >= 0.75f -> settledPage + 1
-                delta <= -0.75f -> settledPage - 1
-                else -> settledPage
-            }.coerceIn(0, state.config.totalWeeks.coerceAtLeast(1) - 1)
-            val desiredWeek = desiredPage + 1
-            if (desiredWeek != displayWeek) {
-                gestureCommittedWeek = desiredWeek
-                onSwipeWeek(desiredWeek - displayWeek)
+    val latestDisplayWeek by rememberUpdatedState(displayWeek)
+    val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
+    LaunchedEffect(pagerState, state.config.totalWeeks) {
+        // Observe page commits outside composition, as in Nexio. Publishing at 75% of a
+        // swipe rebuilt home buckets, glass groups and rail layout during the last frames.
+        snapshotFlow { pagerState.settledPage }.distinctUntilChanged().collect { page ->
+            val settledWeek = (page + 1).coerceIn(1, state.config.totalWeeks.coerceAtLeast(1))
+            if (settledWeek != latestDisplayWeek) {
+                gestureCommittedWeek = settledWeek
+                latestSwipeWeek(settledWeek - latestDisplayWeek)
             }
         }
     }
@@ -484,7 +472,7 @@ internal fun SinglePillWeekScheduleScreen(
         }
         if (direction != 0) {
             val oldWeek = previousDisplayWeek
-            val oldBuckets = weekCourseBuckets(state.courses, oldWeek)
+            val oldBuckets = bucketsForWeek(oldWeek)
             outgoingCourses.value = oldBuckets.visibleCourses
             outgoingWeekdays.value = visibleWeekdaysForBuckets(oldBuckets, state.config.hideEmptyWeekends)
             outgoingWeekKey.intValue = oldWeek
@@ -799,9 +787,7 @@ internal fun SinglePillWeekScheduleScreen(
                             key = { it }
                         ) { page ->
                             val pageWeek = page + 1
-                            val pageBuckets = remember(state.courses, pageWeek) {
-                                weekCourseBuckets(state.courses, pageWeek)
-                            }
+                            val pageBuckets = bucketsForWeek(pageWeek)
                             val pageCourses = pageBuckets.visibleCourses
                             val pageWeekdays = remember(pageBuckets, state.config.hideEmptyWeekends) {
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
@@ -1690,8 +1676,9 @@ private fun renderedWeekSegments(
 }
 
 @Composable
-fun WeekDayColumn(
+private fun WeekDayColumn(
     courses: List<CourseEntity>,
+    renderedSegments: List<WeekRenderedSegment>,
     periods: List<PeriodEntity>,
     cardHeight: Dp,
     cardColor: ComposeColor,
@@ -1734,20 +1721,6 @@ fun WeekDayColumn(
 ) {
     val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
-    val conflictGroups = remember(courses, periodIndexes, periods) {
-        buildWeekConflictGroups(courses, periodIndexes, periods)
-    }
-    val renderedSegments = remember(
-        conflictGroups,
-        conflictFocusCourseId,
-        conflictFocusCourseKey
-    ) {
-        renderedWeekSegments(
-            conflictGroups = conflictGroups,
-            conflictFocusCourseId = conflictFocusCourseId,
-            conflictFocusCourseKey = conflictFocusCourseKey
-        )
-    }
     val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     val courseBackdropSampleScale = adaptiveCourseGlassSampleScale(
         composedCardCount = composedCourseCardCount,
@@ -2006,6 +1979,7 @@ fun WeekCourseColumnsLayer(
                 ) {
                     WeekDayColumn(
                         courses = coursesByWeekday[day].orEmpty(),
+                        renderedSegments = renderedSegmentsByDay[day].orEmpty(),
                         periods = periods,
                         cardHeight = cardHeight,
                         cardColor = cardColor,
@@ -3135,8 +3109,9 @@ fun WeekCourseBlock(
     // mode must not cancel the finger that is about to move the course.
     val bodyGestureModifier = Modifier.pointerInput(customTimeLocked, course.id, editWeek, currentSpan) {
         awaitEachGesture {
-            val down = awaitFirstDown()
-            down.consume()
+            // Leave the initial contact to the Pager/vertical scroller. Consume only after
+            // long press wins, so their slop/velocity tracking is not interrupted by a card.
+            val down = awaitFirstDown(requireUnconsumed = false)
             val longPress = awaitLongPressOrCancellation(down.id)
             if (longPress == null) {
                 val up = currentEvent.changes.firstOrNull { it.id == down.id }

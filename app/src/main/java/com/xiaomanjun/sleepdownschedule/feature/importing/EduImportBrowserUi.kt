@@ -1298,7 +1298,9 @@ private fun EduImportBrowserScreen(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            // Use the window's normal hardware renderer, as Nexio does. A forced View layer
+            // plus a Compose offscreen texture adds another target around Chromium's functor.
+            setLayerType(android.view.View.LAYER_TYPE_NONE, null)
             setOnTouchListener { _, event ->
                 webGestureActive = when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> true
@@ -1604,10 +1606,7 @@ private fun EduImportBrowserScreen(
                 AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = topPadding)
-                        .graphicsLayer {
-                            compositingStrategy = CompositingStrategy.Offscreen
-                        },
+                        .padding(top = topPadding),
                     factory = { createEduWebView(it) },
                     // Navigation remains event-driven; observed page URLs never feed back into
                     // loadUrl from recomposition.
@@ -1627,10 +1626,7 @@ private fun EduImportBrowserScreen(
                     AndroidView(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = topPadding)
-                            .graphicsLayer {
-                                compositingStrategy = CompositingStrategy.Offscreen
-                            },
+                            .padding(top = topPadding),
                         factory = { popup },
                         update = {},
                         onRelease = { released ->
