@@ -25,11 +25,11 @@ class CourseHdrUiTest {
     }
 
     @Test
-    fun coloredCoreExceedsSdrWhiteWithoutDarkeningAnotherChannel() {
+    fun coloredCoreKeepsItsHueWithoutAddingWhite() {
         val blue = courseHdrLightColor(Color.Blue)
         assertEquals(ColorSpaces.LinearExtendedSrgb, blue.colorSpace)
-        assertEquals(1f, blue.red, 0.001f)
-        assertEquals(1f, blue.green, 0.001f)
+        assertEquals(0f, blue.red, 0.001f)
+        assertEquals(0f, blue.green, 0.001f)
         assertEquals(CourseHdrHeadroom, blue.blue, 0.001f)
         assertEquals(1f, blue.alpha, 0.001f)
         val red = courseHdrLightColor(Color.Red)
@@ -40,7 +40,16 @@ class CourseHdrUiTest {
     fun extendedInputCannotExceedTheRequestedHeadroom() {
         val bright = courseHdrLightColor(Color(4f, -0.2f, 1f, 1f, ColorSpaces.LinearExtendedSrgb))
         assertEquals(CourseHdrHeadroom, bright.red, 0.001f)
-        assertEquals(1f, bright.green, 0.001f)
-        assertEquals(CourseHdrHeadroom, bright.blue, 0.001f)
+        assertEquals(0f, bright.green, 0.001f)
+        assertEquals(CourseHdrHeadroom / 4f, bright.blue, 0.001f)
+    }
+
+    @Test
+    fun scalingPreservesLinearChannelRatiosAndBlackDoesNotBecomeWhite() {
+        val light = courseHdrLightColor(Color(0.8f, 0.4f, 0.2f, 1f, ColorSpaces.LinearExtendedSrgb))
+        assertEquals(2f, light.red / light.green, 0.005f)
+        assertEquals(2f, light.green / light.blue, 0.005f)
+        val black = courseHdrLightColor(Color.Black)
+        assertEquals(0f, black.red + black.green + black.blue, 0.001f)
     }
 }

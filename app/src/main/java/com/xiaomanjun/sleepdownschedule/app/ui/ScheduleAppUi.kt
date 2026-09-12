@@ -694,6 +694,7 @@ fun CourseScheduleAppUi(
     viewModel: ScheduleViewModel,
     externalIcsUri: Uri? = null,
     onExternalIcsConsumed: (Uri) -> Unit = {},
+    onCourseEditorVisibilityChange: (Boolean) -> Unit = {},
     onStartupContentReady: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -812,8 +813,15 @@ fun CourseScheduleAppUi(
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
+    val courseEditorOwnsHdr = courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
+    val courseHdrActive = LocalCourseHdrUi.current
+    LaunchedEffect(courseEditorOwnsHdr) {
+        onCourseEditorVisibilityChange(courseEditorOwnsHdr)
+    }
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null) {
         if (courseEditorRequest != null) return
+        // Remove extra brightness in the click callback, before preparation/cached scene capture.
+        onCourseEditorVisibilityChange(true)
         val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
         courseEditorFlightRegistry.frozen = true
         courseEditorRequest = CourseEditorOverlayRequest(
@@ -1546,6 +1554,7 @@ fun CourseScheduleAppUi(
     }
     val homeCaptureFrameKey = remember(
         captureRenderToken,
+        courseHdrActive,
         visualState.config,
         visualState.courses,
         visualState.periods,
@@ -1562,6 +1571,7 @@ fun CourseScheduleAppUi(
     ) {
         buildString {
             append(captureRenderToken).append('|')
+            append(courseHdrActive).append('|')
             append(visualState.config.hashCode()).append('|')
             append(visualState.courses.hashCode()).append('|')
             append(visualState.periods.hashCode()).append('|')

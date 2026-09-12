@@ -840,13 +840,13 @@ internal fun Modifier.verticalGlassAccent(
                     color = Color.White
                     blendMode = BlendMode.Screen
                 }
-                val hdrPaint = if (hdrEdgeGlow && surroundingEdgeGlow && Build.VERSION.SDK_INT >= 35) {
-                    courseHdrLightPaint(edgeColor)
+                val lightBounds = bounds ?: Rect(Offset.Zero, size)
+                val hdrRadius = morphAllocation?.geometry()?.cornerRadiusPx
+                    ?: (shape as? RoundedRectangle)?.cornerRadius?.toPx()
+                val hdrPaint = if (hdrEdgeGlow && surroundingEdgeGlow && hdrRadius != null &&
+                    Build.VERSION.SDK_INT >= 35 && lightBounds.width > 0f && lightBounds.height > 0f) {
+                    courseHdrLightPaint(edgeColor, lightBounds, hdrRadius, 20.dp.toPx(), edgeStrength)
                 } else null
-                val hdrMesh = if (hdrPaint != null) courseEdgeGlowMesh(
-                    bounds ?: Rect(Offset.Zero, size), 12.dp.toPx(), Color.White, edgeStrength,
-                    bottomEdge = true, peakAlpha = 0.40f
-                ) else null
                 val colorBlend = if (surroundingEdgeGlow) BlendMode.Screen else BlendMode.Plus
                 onDrawBehind {
                     if (bounds == null) {
@@ -859,10 +859,9 @@ internal fun Modifier.verticalGlassAccent(
                     // Vertex interpolation gives a continuous soft falloff in one cached draw;
                     // no per-card blur texture, runtime shader or stacked hard strokes.
                     if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
-                    // The small HDR core shares the existing cached geometry route. No extra
-                    // capture, blur, offscreen surface or frame-driven shader allocation.
-                    if (hdrMesh != null && hdrPaint != null) {
-                        drawContext.canvas.drawVertices(hdrMesh, BlendMode.Modulate, hdrPaint)
+                    // Analytic top/bottom feathering; no backdrop sample or extra offscreen layer.
+                    if (hdrPaint != null) {
+                        drawContext.canvas.drawRect(lightBounds, hdrPaint)
                     }
                 }
             }

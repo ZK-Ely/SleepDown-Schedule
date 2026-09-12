@@ -12,14 +12,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 
-internal const val CourseHdrHeadroom = 2f
+internal const val CourseHdrHeadroom = 1.2f
 internal val LocalCourseHdrUi = compositionLocalOf { false }
 
 internal fun supportsCourseHdrUi(
@@ -36,11 +38,12 @@ internal fun supportsCourseHdrUi(
  * This is a request: Android still tone maps to the headroom allowed by the current display.
  */
 @Composable
-internal fun ProvideCourseHdrUi(window: Window, enabled: Boolean, content: @Composable () -> Unit) {
+internal fun ProvideCourseHdrUi(window: Window, enabled: Boolean, suspended: Boolean, content: @Composable () -> Unit) {
     val view = LocalView.current
     val configuration = LocalConfiguration.current
     val wideColorWindow = Build.VERSION.SDK_INT >= 35 && configuration.isScreenWideColorGamut
     var active by remember(window, view) { mutableStateOf(false) }
+    val suspendedState = rememberUpdatedState(suspended)
     DisposableEffect(window, view, enabled, wideColorWindow) {
         if (Build.VERSION.SDK_INT < 35 || !enabled) {
             active = false
@@ -65,7 +68,9 @@ internal fun ProvideCourseHdrUi(window: Window, enabled: Boolean, content: @Comp
                 requested = supported
                 // Never switch color mode with pager progress, blur suspension or morph frames.
                 window.colorMode = if (supported) ActivityInfo.COLOR_MODE_HDR else originalColorMode
-                window.desiredHdrHeadroom = if (supported) CourseHdrHeadroom else originalHeadroom
+                window.desiredHdrHeadroom = if (supported) {
+                    if (suspendedState.value) 1f else CourseHdrHeadroom
+                } else originalHeadroom
                 active = supported
                 Log.i("CourseHdrUi", "HDR outline requested=$supported, headroom=${if (supported) CourseHdrHeadroom else 1f}")
             }
@@ -92,5 +97,13 @@ internal fun ProvideCourseHdrUi(window: Window, enabled: Boolean, content: @Comp
             }
         }
     }
-    CompositionLocalProvider(LocalCourseHdrUi provides (enabled && active), content = content)
+    SideEffect {
+        // Keep the high precision surface through the morph; only remove its extra headroom.
+        // This also tone maps an older cached background while its SDR replacement is recorded.
+        if (active && Build.VERSION.SDK_INT >= 35) {
+            val headroom = if (suspended) 1f else CourseHdrHeadroom
+            if (window.desiredHdrHeadroom != headroom) window.desiredHdrHeadroom = headroom
+        }
+    }
+    CompositionLocalProvider(LocalCourseHdrUi provides (enabled && active && !suspended), content = content)
 }
