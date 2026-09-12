@@ -36,7 +36,7 @@
 
 1. 每个真实采样源实例只创建一个稳定 provider，消费者复用其 Backdrop；首页 Background/Content/PickerScene 各自保持单一主 provider，缓存周视图和控件内部轨道等派生源仍按其真实所有权独立存在。同一组件实例不因普通重组更换 provider、Shape 或效果回调身份。
 2. 动态参数通过 `rememberUpdatedState` 在已有 Modifier node 中读取，避免无关重组重新构造完整 Kyant 效果链。
-3. 首页保留周视图 GPU 缓存；课程表单在外壳与背景动画结束后才挂载并播放进入动画，Open 使用真实内容。当前时序见 [Beta5 表单延后挂载](2026-09-12-beta5-deferred-form-desktop.md)，不再使用早期的表单预载/录制等待。
+3. 首页保留周视图 GPU 缓存；课程表单在外壳与背景动画结束后才挂载当前页面及可见字段，Open 使用真实内容。当前时序及顶栏覆盖见 [Beta5 顶栏、轮廓光与表单](2026-09-12-beta5-header-light-editor.md)，不再使用早期的整页表单预载/录制等待。
 4. Debug/benchmark 在每个完成帧重置一次统计区间，并把以下值写入 JankStats state 和 Perfetto counter；动画标签切换时另输出区间日志。Release 不进入逐帧计数分支：
    - `SleepDown.Glass.ProviderRecords`
    - `SleepDown.Glass.ProviderInstances`
