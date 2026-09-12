@@ -398,20 +398,6 @@ private fun aiEduRequestPreview(settings: AiImportSettings, pageTextLength: Int)
     }
 }
 
-private fun eduDesktopUserAgent(context: Context): String {
-    val current = WebSettings.getDefaultUserAgent(context)
-    val webKit = Regex("AppleWebKit/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
-    val chromium = Regex("(?:Chrome|Chromium)/[0-9.]+", RegexOption.IGNORE_CASE).find(current)?.value
-    val safari = Regex("Safari/[^\\s]+", RegexOption.IGNORE_CASE).find(current)?.value
-    if (webKit == null || chromium == null || safari == null) {
-        return current
-            .replaceFirst(Regex("\\([^)]*\\)"), "(X11; Linux x86_64)")
-            .replace("; wv", "")
-            .replace(" Mobile ", " ")
-    }
-    return "Mozilla/5.0 (X11; Linux x86_64) $webKit (KHTML, like Gecko) $chromium $safari"
-}
-
 private fun eduImportIslandStatus(rawStatus: String?): String? {
     val status = rawStatus?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val lowercase = status.lowercase(Locale.ROOT)
@@ -896,6 +882,7 @@ private fun EduImportBrowserScreen(
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
+    val webCompatDelegates = remember(adapter) { mutableMapOf<WebView, WebCompatDelegate>() }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
     var webTopEdgeColor by remember(adapter) { mutableStateOf<ComposeColor?>(null) }
@@ -1227,26 +1214,13 @@ private fun EduImportBrowserScreen(
         canGoForward = target?.canGoForward() == true
     }
 
-    fun applyEduWebMode(target: WebView, desktop: Boolean) {
-        with(target.settings) {
-            userAgentString = if (desktop) {
-                eduDesktopUserAgent(context)
-            } else {
-                null
-            }
-            useWideViewPort = true
-            // Keep Chromium's overview layout in both modes. Desktop identity still comes from the
-            // current system WebView UA, while the initial page is allowed to fit the real host
-            // width instead of exposing only the upper-left part of fixed-width teaching sites.
-            loadWithOverviewMode = true
-            layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
-            textZoom = 100
-        }
-        target.setInitialScale(0)
+    fun releaseWebCompat(target: WebView, rendererGone: Boolean = false) {
+        webCompatDelegates.remove(target)?.dispose(rendererGone)
     }
 
     fun closePopupWebView() {
         popupWebView?.let { popup ->
+            releaseWebCompat(popup)
             popup.uninstallShiguangRuntime()
             (popup.parent as? ViewGroup)?.removeView(popup)
             popup.releaseSleepDownWebView(clearResourceCache = false)
@@ -1313,16 +1287,9 @@ private fun EduImportBrowserScreen(
                     scheduleWebTopEdgeSample()
                 }
             }
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
             settings.databaseEnabled = true
             configureEduImportSecurity()
             enableSystemCredentialAutofill()
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
-            settings.setSupportZoom(true)
-            settings.builtInZoomControls = true
-            settings.displayZoomControls = false
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.setSupportMultipleWindows(!isPopup)
             // Match Shiguang: legacy HTTPS teaching pages may load their JS loader over HTTP.
@@ -1331,7 +1298,8 @@ private fun EduImportBrowserScreen(
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            applyEduWebMode(this, desktopMode)
+            val compatDelegate = WebCompatDelegate(this, desktopMode)
+            webCompatDelegates[this] = compatDelegate
             CookieManager.getInstance().apply {
                 setAcceptCookie(true)
                 setAcceptThirdPartyCookies(this@webView, true)
@@ -1351,6 +1319,7 @@ private fun EduImportBrowserScreen(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    compatDelegate.onPageFinished()
                     view?.injectShiguangRuntime(desktopMode)
                     scheduleWebTopEdgeSample()
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
@@ -1439,10 +1408,12 @@ private fun EduImportBrowserScreen(
                     val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
                         ?: addressText.takeIf { it.isNotBlank() }
                         ?: currentUrl
+                    view?.let { releaseWebCompat(it, rendererGone = true) }
                     view?.uninstallShiguangRuntime()
                     (view?.parent as? ViewGroup)?.removeView(view)
                     view?.destroy()
                     popupWebView?.takeIf { it !== view }?.let { popup ->
+                        releaseWebCompat(popup)
                         popup.uninstallShiguangRuntime()
                         (popup.parent as? ViewGroup)?.removeView(popup)
                         popup.destroy()
@@ -1450,6 +1421,7 @@ private fun EduImportBrowserScreen(
                     popupWebView = null
                     if (isPopup) {
                         webView?.let { primary ->
+                            releaseWebCompat(primary)
                             primary.uninstallShiguangRuntime()
                             (primary.parent as? ViewGroup)?.removeView(primary)
                             primary.destroy()
@@ -1510,7 +1482,7 @@ private fun EduImportBrowserScreen(
             bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
-            if (initialUrl.isNotBlank()) loadUrl(initialUrl)
+            if (initialUrl.isNotBlank()) webCompatDelegates.getValue(this).loadInitialUrl(initialUrl)
         }
     }
 
@@ -1519,6 +1491,8 @@ private fun EduImportBrowserScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
+            webCompatDelegates.values.forEach { it.dispose() }
+            webCompatDelegates.clear()
             popupWebView?.let { popup ->
                 popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
@@ -1611,6 +1585,7 @@ private fun EduImportBrowserScreen(
                     // loadUrl from recomposition.
                     update = {},
                     onRelease = { released ->
+                        releaseWebCompat(released)
                         if (released === webView) {
                             onWebView(null)
                             bridge.bindWebView(null)
@@ -1632,6 +1607,7 @@ private fun EduImportBrowserScreen(
                         factory = { popup },
                         update = {},
                         onRelease = { released ->
+                            releaseWebCompat(released)
                             if (released === popupWebView) {
                                 popupWebView = null
                                 released.uninstallShiguangRuntime()
@@ -1677,13 +1653,7 @@ private fun EduImportBrowserScreen(
                 },
                 onToggleDesktopMode = {
                     desktopMode = !desktopMode
-                    (popupWebView ?: webView)?.let { target ->
-                        // Changing UA during an active load makes WebView restart that load itself.
-                        // Stop first, apply the complete mode, then perform one explicit reload.
-                        target.stopLoading()
-                        applyEduWebMode(target, desktopMode)
-                        target.reload()
-                    }
+                    webCompatDelegates.values.toList().forEach { it.setDesktopMode(desktopMode) }
                 },
                 historyEntries = dockHistoryEntries,
                 historyExpanded = dockHistoryExpanded,
