@@ -769,6 +769,11 @@ fun NormalizedCourseEditorScreen(
             val draft = drafts.getValue(page)
             CourseEditorFormPage(
                 course = course,
+                title = when {
+                    copyDraft != null -> "复制课程"
+                    course == null -> "添加单节课"
+                    else -> "编辑单节课"
+                },
                 groupedCourses = group.courses,
                 draft = draft,
                 onDraftChange = { drafts = drafts + (page to it); error = null },
@@ -865,6 +870,7 @@ fun NormalizedCourseEditorScreen(
 @Composable
 private fun CourseEditorFormPage(
     course: CourseEntity?,
+    title: String,
     groupedCourses: List<CourseEntity>,
     draft: CourseEditorDraft,
     onDraftChange: (CourseEditorDraft) -> Unit,
@@ -1091,7 +1097,7 @@ private fun CourseEditorFormPage(
         }
     }
     CourseEditorFixedHeader(
-        title = if (course == null) "添加单节课" else "编辑单节课",
+        title = title,
         backdrop = backdrop,
         config = config,
         onCancel = onCancel,

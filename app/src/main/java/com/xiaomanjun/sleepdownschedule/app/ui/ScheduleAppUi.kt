@@ -586,8 +586,7 @@ sealed interface HomeDialog {
     data object EduImport : HomeDialog
     data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog? = ImportSchedule) : HomeDialog
     data class EditWallpaper(val uri: Uri, val entrySnapshot: Bitmap?) : HomeDialog
-    data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null,
-        val copyDraft: CourseEntity? = null) : HomeDialog
+    data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
     data class ApplyCourseEdit(val original: CourseEntity, val edited: CourseEntity, val targetWeek: Int) : HomeDialog
     data class ConfirmCourseConflicts(
         val original: CourseEntity,
@@ -811,14 +810,19 @@ fun CourseScheduleAppUi(
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
     var courseEditorRenderedCourseId by remember { mutableStateOf<Long?>(null) }
     val courseEditorMotionState = rememberCourseEditorMotionState()
+    val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?) {
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null) {
         if (courseEditorRequest != null) return
+        val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
+        courseEditorFlightRegistry.frozen = true
         courseEditorRequest = CourseEditorOverlayRequest(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null
+            sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
+            copyDraft = copyDraft,
+            sourceGrid = sourceGrid
         )
     }
     fun closeCourseEditor() {
@@ -836,11 +840,8 @@ fun CourseScheduleAppUi(
             homeDialogVisible = true
         } else if (renderedHomeDialog != null) {
             homeDialogVisible = false
-            // The centered copy editor owns its exit completion, including interrupted motion.
-            if ((renderedHomeDialog as? HomeDialog.EditCourse)?.copyDraft == null) {
-                delay(320)
-                renderedHomeDialog = null
-            }
+            delay(320)
+            renderedHomeDialog = null
         }
     }
     val homeAnchoredMorphState = rememberHomeAnchoredMorphState()
@@ -873,7 +874,12 @@ fun CourseScheduleAppUi(
     var pendingHomeAnchoredOverlay by remember { mutableStateOf<HomeAnchoredOverlayKind?>(null) }
     var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
-    val editingCourseId: Long? = courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
+    val landingCourse = courseEditorMotionState.closingCourseOverride
+    val editingCourseId: Long? = if (landingCourse != null) {
+        state.courses.firstOrNull {
+            it.copy(id = 0, weeks = landingCourse.weeks, weekParity = landingCourse.weekParity) == landingCourse.copy(id = 0)
+        }?.id
+    } else courseEditorRequest?.course?.id ?: courseEditorRenderedCourseId
     val activeHomeAnchoredOverlay =
         homeAnchoredOverlayRequest?.kind ?: homeAnchoredMorphState.renderedKind
     val destinationTransitionActive =
@@ -2299,6 +2305,7 @@ fun CourseScheduleAppUi(
             sharedCourseBackdrop.takeIf { useSharedCourseBackdrop },
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
+        LocalCourseEditorFlightRegistry provides courseEditorFlightRegistry,
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalStartupEntranceSpec provides startupEntranceSpec,
@@ -2331,7 +2338,10 @@ fun CourseScheduleAppUi(
                     config = visualState.config,
                     backdrop = centeredDialogSceneBackdrop,
                     cardBackdrop = backgroundBackdrop,
-                    onCopy = { draft -> homeDialog = HomeDialog.EditCourse(null, copyDraft = draft) },
+                    onEdit = { source -> openCourseEditor(source.course, source.week, source.bounds) },
+                    onCopy = { source, draft ->
+                        openCourseEditor(source.course, source.week, source.bounds, copyDraft = draft)
+                    },
                     onRemove = { course, week ->
                         pendingCourseGroupDelete = emptyList()
                         homeDialog = HomeDialog.ApplyCourseDelete(course, week)
@@ -3824,6 +3834,38 @@ fun CourseScheduleAppUi(
             modifier = Modifier.zIndex(100f),
             awaitOpeningGate = { awaitCourseGlassOpeningGate(routeEligible = true) },
             onDismissRequest = { closeCourseEditor() },
+            onCopy = { courses, onResult ->
+                val sourceRequest = courseEditorRequest
+                viewModel.copyCourses(courses) { success ->
+                    onResult(success)
+                    if (success && courseEditorRequest === sourceRequest) {
+                        val destination = courses.first()
+                        appScope.launch {
+                            val visibleWeeks = destination.weeks.filter {
+                                weekCourseBuckets(listOf(destination), it).visibleCourses.isNotEmpty()
+                            }
+                            val destinationWeek = sourceRequest?.targetWeek?.takeIf { it in visibleWeeks }
+                                ?: visibleWeeks.firstOrNull() ?: homeDisplayWeek
+                            val targetBuckets = weekCourseBuckets(state.courses + courses, destinationWeek)
+                            val weekdays = visibleWeekdaysForBuckets(targetBuckets, state.config.hideEmptyWeekends)
+                            val destinationBounds = sourceRequest?.sourceGrid?.reveal(destination, weekdays)
+                                ?: sourceRequest?.sourceBoundsInRoot?.let { source ->
+                                    courseEditorWeekLandingBounds(
+                                        source, sourceRequest.course, destination,
+                                        state.periods.map { it.periodIndex },
+                                        with(density) { weekCardHeight.dp.toPx() },
+                                        with(density) { 4.dp.toPx() }
+                                    )
+                                }
+                            if (courseEditorRequest === sourceRequest) {
+                                homeDisplayWeek = destinationWeek
+                                courseEditorMotionState.retractTo(destinationBounds, destination)
+                                closeCourseEditor()
+                            }
+                        }
+                    }
+                }
+            },
             onSave = { originals, editedCourses, targetWeek ->
                 val original = originals.singleOrNull()
                 val edited = editedCourses.singleOrNull()
@@ -3878,7 +3920,10 @@ fun CourseScheduleAppUi(
                 )
             },
             motionState = courseEditorMotionState,
-            onRenderedCourseIdChange = { courseEditorRenderedCourseId = it },
+            onRenderedCourseIdChange = {
+                courseEditorRenderedCourseId = it
+                if (it == null) courseEditorFlightRegistry.frozen = false
+            },
             onPhaseChange = {}
         )
 
@@ -3966,22 +4011,7 @@ fun CourseScheduleAppUi(
     // Dialog-based dialogs for all other types (including EditCourse without a source card)
     renderedHomeDialog?.let { dialog ->
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
-        if (dialog is HomeDialog.EditCourse && dialog.copyDraft != null) {
-            CopiedCourseEditorOverlay(
-                show = homeDialogVisible,
-                draft = dialog.copyDraft,
-                state = state,
-                backdrop = homeDialogBackdrop,
-                onDismissRequest = { dismissHomeDialog() },
-                onDismissFinished = {
-                    if (homeDialog == null && renderedHomeDialog == dialog) renderedHomeDialog = null
-                },
-                onSave = { courses ->
-                    viewModel.addCourses(courses.map { it.copy(id = 0, scheduleId = dialog.copyDraft.scheduleId) })
-                    dismissHomeDialog()
-                }
-            )
-        } else if (dialog is HomeDialog.ApplyCourseEdit) {
+        if (dialog is HomeDialog.ApplyCourseEdit) {
             ApplyCourseEditDialog(
                 original = dialog.original,
                 edited = dialog.edited,
@@ -4210,12 +4240,7 @@ fun CourseScheduleAppUi(
                             NormalizedCourseEditorScreen(
                                 state = state,
                                 initialCourse = dialog.course,
-                                copyDraft = dialog.copyDraft,
                                 onCancel = { dismissHomeDialog() },
-                                onSaveCourses = if (dialog.copyDraft != null) { courses ->
-                                    viewModel.addCourses(courses.map { it.copy(id = 0, scheduleId = dialog.copyDraft.scheduleId) })
-                                    dismissHomeDialog()
-                                } else null,
                                 onSave = {
                                     if (dialog.course == null) {
                                         viewModel.addCourse(it)

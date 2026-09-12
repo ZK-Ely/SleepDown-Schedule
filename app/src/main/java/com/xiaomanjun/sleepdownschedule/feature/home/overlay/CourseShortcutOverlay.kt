@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -72,13 +73,14 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         motion = scope.launch {
             progress.snapTo(0f)
             cardScale.snapTo(1f)
+            // Press first. The return lift and menu expansion then share the same start frame.
+            cardScale.animateTo(0.98f, tween(85, easing = FastOutSlowInEasing))
             launch {
                 cardScale.animateTo(1.015f, keyframes {
-                    durationMillis = 300
-                    1f at 0
-                    0.98f at 85 using FastOutSlowInEasing
-                    1.02f at 220 using FastOutSlowInEasing
-                    1.015f at 300
+                    durationMillis = 215
+                    0.98f at 0 using FastOutSlowInEasing
+                    1.02f at 135 using FastOutSlowInEasing
+                    1.015f at 215
                 })
             }
             progress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 380f))
@@ -157,7 +159,8 @@ internal fun CourseShortcutOverlay(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     cardBackdrop: Backdrop?,
-    onCopy: (CourseEntity) -> Unit,
+    onEdit: (CourseShortcutRequest) -> Unit,
+    onCopy: (CourseShortcutRequest, CourseEntity) -> Unit,
     onRemove: (CourseEntity, Int) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -197,7 +200,7 @@ internal fun CourseShortcutOverlay(
             val placement = with(density) {
                 val readableWidth = (120.dp + 64.dp * density.fontScale.coerceAtLeast(1f)).toPx()
                 courseShortcutPlacement(source, available, maxOf(source.width + 40.dp.toPx(), readableWidth),
-                    (rowHeight * 3f + CourseShortcutContentPaddingDp.dp * 2f).toPx(), 10.dp.toPx(), request.pivotX)
+                    (rowHeight * 4f + CourseShortcutContentPaddingDp.dp * 2f).toPx(), 10.dp.toPx(), request.pivotX)
             }
             Box(
                 Modifier.offset { IntOffset(source.left.roundToInt(), source.top.roundToInt()) }
@@ -214,11 +217,15 @@ internal fun CourseShortcutOverlay(
                     shape = RoundedRectangle(with(density) { request.cornerPx.toDp() }), onClick = null
                 ) { WeekCourseOverlayCardContent(request.course, config) }
             }
-            val actions = remember(request, controller, onRemove) {
+            val actions = remember(request, controller, onEdit, onRemove) {
                 listOf(
-                    AddMenuAction(R.drawable.ic_edit, "进入编辑") {
+                    AddMenuAction(R.drawable.ic_edit, "快速编辑模式") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close(request.enterEditMode)
+                    },
+                    AddMenuAction(label = "编辑单节课", imageVector = Icons.Rounded.EditNote) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        controller.close { onEdit(request) }
                     },
                     AddMenuAction(label = "复制课程", imageVector = Icons.Rounded.ContentCopy) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -264,11 +271,11 @@ internal fun CourseShortcutOverlay(
             actions = listOf(
                 LiquidAlertAction("所有上课周", LiquidAlertActionStyle.Primary) {
                     controller.copyRequest = null
-                    onCopy(copiedShortcutCourse(copy.course, null))
+                    onCopy(copy, copiedShortcutCourse(copy.course, null))
                 },
                 LiquidAlertAction("仅第${copy.week}周", LiquidAlertActionStyle.Secondary) {
                     controller.copyRequest = null
-                    onCopy(copiedShortcutCourse(copy.course, copy.week))
+                    onCopy(copy, copiedShortcutCourse(copy.course, copy.week))
                 },
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { controller.copyRequest = null }
             ),

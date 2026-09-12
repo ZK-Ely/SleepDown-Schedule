@@ -185,9 +185,12 @@ class CourseEditorMotionState internal constructor() {
         }
     var closingSourceBoundsOverride by mutableStateOf<Rect?>(null)
         internal set
+    var closingCourseOverride by mutableStateOf<CourseEntity?>(null)
+        internal set
 
-    fun retractTo(boundsInRoot: Rect?) {
+    fun retractTo(boundsInRoot: Rect?, course: CourseEntity? = null) {
         closingSourceBoundsOverride = boundsInRoot
+        closingCourseOverride = course
     }
 }
 
@@ -198,7 +201,9 @@ data class CourseEditorOverlayRequest(
     val course: CourseEntity,
     val targetWeek: Int?,
     val sourceBoundsInRoot: Rect?,
-    val sourceIsDayCard: Boolean = false
+    val sourceIsDayCard: Boolean = false,
+    val copyDraft: CourseEntity? = null,
+    internal val sourceGrid: CourseEditorWeekGrid? = null
 )
 
 
@@ -211,6 +216,7 @@ data class CourseEditorOverlayRequest(
 internal class CourseEditorMorphCornerShape(
     private val radiusX: Float,
     private val radiusY: Float,
+    private val taper: Float = 0f,
     topStart: CornerSize = CornerSize(minOf(radiusX, radiusY)),
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
@@ -223,11 +229,23 @@ internal class CourseEditorMorphCornerShape(
         bottomEnd: Float,
         bottomStart: Float,
         layoutDirection: LayoutDirection
-    ): Outline = Outline.Generic(
-        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
+    ): Outline {
+        val path = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.continuousRoundedRectPath(
             android.graphics.RectF(0f, 0f, size.width, size.height), radiusX, radiusY
-        ).asComposePath()
-    )
+        )
+        if (taper != 0f && size.width > 0f && size.height > 0f) {
+            val topInset = taper.coerceAtLeast(0f) * size.width
+            val bottomInset = (-taper).coerceAtLeast(0f) * size.width
+            val matrix = android.graphics.Matrix()
+            matrix.setPolyToPoly(
+                floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height), 0,
+                floatArrayOf(topInset, 0f, size.width - topInset, 0f,
+                    size.width - bottomInset, size.height, bottomInset, size.height), 0, 4
+            )
+            path.transform(matrix)
+        }
+        return Outline.Generic(path.asComposePath())
+    }
 
     override fun copy(
         topStart: CornerSize,
@@ -237,6 +255,7 @@ internal class CourseEditorMorphCornerShape(
     ): CornerBasedShape = CourseEditorMorphCornerShape(
         radiusX = radiusX,
         radiusY = radiusY,
+        taper = taper,
         topStart = topStart,
         topEnd = topEnd,
         bottomEnd = bottomEnd,
@@ -255,12 +274,14 @@ internal fun CourseEditorContainerOverlayHost(
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
+    onCopy: (List<CourseEntity>, (Boolean) -> Unit) -> Unit,
     onDelete: (courses: List<CourseEntity>, targetWeek: Int?) -> Unit,
     motionState: CourseEditorMotionState,
     onRenderedCourseIdChange: (Long?) -> Unit = {},
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
+    var copySaving by remember(request) { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var editorContentMounted by remember { mutableStateOf(false) }
     var editorContentReady by remember { mutableStateOf(false) }
@@ -279,7 +300,7 @@ internal fun CourseEditorContainerOverlayHost(
 
     LaunchedEffect(request) {
         if (request != null) {
-            motionState.closingSourceBoundsOverride = null
+            motionState.retractTo(null)
             updatePhase(CourseEditorOverlayPhase.Preparing)
             renderedRequest = request
             editorContentAlpha.snapTo(1f)
@@ -364,7 +385,7 @@ internal fun CourseEditorContainerOverlayHost(
             updatePhase(CourseEditorOverlayPhase.Disposing)
             renderedRequest = null
             latestOnRenderedCourseIdChange(null)
-            motionState.closingSourceBoundsOverride = null
+            motionState.retractTo(null)
             updatePhase(CourseEditorOverlayPhase.Idle)
         } else {
             if (motionState.phase != CourseEditorOverlayPhase.Idle || editorContentMounted || renderedRequest != null) {
@@ -376,7 +397,7 @@ internal fun CourseEditorContainerOverlayHost(
             editorContentAlpha.snapTo(0f)
             editorContentReveal.snapTo(0f)
             latestOnRenderedCourseIdChange(null)
-            motionState.closingSourceBoundsOverride = null
+            motionState.retractTo(null)
             if (motionState.phase != CourseEditorOverlayPhase.Idle) {
                 updatePhase(CourseEditorOverlayPhase.Idle)
             }
@@ -393,16 +414,26 @@ internal fun CourseEditorContainerOverlayHost(
             courses = state.courses
         )
     }
-    val saveEditedCourse = remember(shownRequest.targetWeek, onSave) {
+    val dismissEditor = { if (!copySaving) onDismissRequest() }
+    val saveEditedCourse = remember(shownRequest, onSave, onCopy) {
         { originals: List<CourseEntity>, edited: List<CourseEntity> ->
-            onSave(originals, edited, shownRequest.targetWeek)
+            if (shownRequest.copyDraft != null) {
+                if (!copySaving) {
+                    copySaving = true
+                    onCopy(edited.map { it.copy(id = 0, scheduleId = shownRequest.copyDraft.scheduleId) }) {
+                        success -> if (!success) copySaving = false
+                    }
+                }
+            } else {
+                onSave(originals, edited, shownRequest.targetWeek)
+            }
         }
     }
     val deleteEditedCourse = remember(shownRequest.targetWeek, onDelete) {
         { courses: List<CourseEntity> -> onDelete(courses, shownRequest.targetWeek) }
     }
     BackHandler(enabled = isOverlayActive) {
-        onDismissRequest()
+        dismissEditor()
     }
 
     val density = LocalDensity.current
@@ -496,7 +527,8 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val rawProgress = progress.value.coerceIn(0f, 1f)
     val materialEnvelope = remember(morphSpec, sourceRect, targetRect) {
-        if (!GlassMotionExperiments.fixedMorph) null else {
+        // A tapered shell cannot be represented by the fixed envelope's rounded-rectangle SDF.
+        if (!GlassMotionExperiments.fixedMorph || hasSourceTransform) null else {
             sampleGlassTransitionEnvelope(
                 tracks = LiquidMorphDirection.entries.map { direction ->
                     { p: Float ->
@@ -511,6 +543,8 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
         overlayPhase == CourseEditorOverlayPhase.Disposing
+    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: shownRequest.course
+        else shownRequest.course
     val morphFrame = morphSpec.frame(
         LiquidMorphInput(
             source = sourceRect,
@@ -559,6 +593,13 @@ internal fun CourseEditorContainerOverlayHost(
         morphFrame.cornerRadiusPx
             .coerceIn(6.dp.toPx(), 36.dp.toPx())
             .toDp()
+    }
+    val taper = if (hasSourceTransform && overlayPhase == CourseEditorOverlayPhase.Opening) {
+        courseEditorOpeningTaper(rawProgress, sourceRect.center.y - targetRect.center.y, targetRect.height)
+    } else 0f
+    val shellShape = remember(corner, density.density, taper) {
+        if (taper == 0f) RoundedRectangle(corner)
+        else with(density) { CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper) }
     }
     // The source shell and the real form must hand off with one shared opacity curve.
     // Keeping the form fully opaque underneath the fading source was most visible for
@@ -613,13 +654,13 @@ internal fun CourseEditorContainerOverlayHost(
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() }
-                ) { onDismissRequest() }
+                ) { dismissEditor() }
         )
         CourseEditorAnimatedContainer(
             backdrop = backdrop,
             config = config,
-            course = shownRequest.course,
-            corner = corner,
+            course = shellCourse,
+            shape = shellShape,
             progress = sizeProgress,
             alpha = morphSurfaceAlpha,
             modifier = if (materialAllocation == null) animatedModifier else Modifier.glassMorphHost(materialAllocation),
@@ -629,7 +670,7 @@ internal fun CourseEditorContainerOverlayHost(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (materialAllocation != null) Modifier.glassMorphContent(materialAllocation) else Modifier)
-                    .clip(RoundedRectangle(corner))
+                    .clip(shellShape)
             ) {
                 if (editorContentMounted) {
                     CourseEditorScaledContentLayer(
@@ -645,17 +686,18 @@ internal fun CourseEditorContainerOverlayHost(
                         textColor = textColor,
                         formData = formData,
                         course = shownRequest.course,
+                        copyDraft = shownRequest.copyDraft,
                         backdrop = editorFormBackdrop,
                         onContentLaidOut = { editorContentReady = true },
                         onContentRecorded = { editorContentRecordedFrames.incrementAndGet() },
-                        onDismissRequest = onDismissRequest,
+                        onDismissRequest = dismissEditor,
                         onSave = saveEditedCourse,
                         onDelete = deleteEditedCourse
                     )
                 }
                 if (sourceCoverAlpha > 0.001f) {
                     CourseEditorSourceShell(
-                        course = shownRequest.course,
+                        course = shellCourse,
                         backdrop = backdrop,
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
@@ -689,6 +731,7 @@ private fun CourseEditorScaledContentLayer(
     textColor: Color,
     formData: CourseEditorFormData,
     course: CourseEntity,
+    copyDraft: CourseEntity?,
     backdrop: Backdrop?,
     onContentLaidOut: () -> Unit,
     onContentRecorded: () -> Unit,
@@ -846,9 +889,11 @@ private fun CourseEditorScaledContentLayer(
                     CompositionLocalProvider(LocalContentColor provides textColor) {
                         NormalizedCourseEditorScreen(
                             formData = formData,
-                            initialCourse = course,
+                            initialCourse = course.takeIf { copyDraft == null },
+                            copyDraft = copyDraft,
                             onCancel = onDismissRequest,
                             onSave = {},
+                            onSaveCourses = { onSave(emptyList(), it) },
                             onSaveGroup = onSave,
                             onDelete = {},
                             onDeleteGroup = onDelete,
@@ -889,14 +934,13 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
-    corner: androidx.compose.ui.unit.Dp,
+    shape: androidx.compose.ui.graphics.Shape,
     progress: Float,
     alpha: Float,
     modifier: Modifier = Modifier,
     morphAllocation: GlassMorphAllocation? = null,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedRectangle(corner)
     val finalDialogBlur = 10f
     val editorBlur = interpolateFloat(
         config.courseCardBlur,
