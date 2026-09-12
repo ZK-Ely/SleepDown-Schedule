@@ -45,8 +45,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -828,19 +829,11 @@ internal fun Modifier.verticalGlassAccent(
                 val brushes = verticalGlassAccentBrushes(
                     bounds?.height ?: size.height, edgeColor, lightGlass, intensity, expanded, lightWallpaper
                 )
-                val edgeOutline = if (surroundingEdgeGlow) {
-                    clipShape.createOutline(size, layoutDirection, this)
-                } else null
-                val edgeLight = Brush.verticalGradient(
-                    0f to edgeColor,
-                    0.65f to edgeColor,
-                    0.9f to Color.Transparent,
-                    1f to Color.Transparent,
-                    startY = bounds?.top ?: 0f,
-                    endY = bounds?.bottom ?: size.height
-                )
-                val edgeWidth = minOf(14.dp.toPx(), (bounds?.width ?: size.width) * 0.22f)
                 val edgeStrength = sqrt(intensity.coerceIn(0f, 1f)) * if (lightWallpaper) 1.35f else 1f
+                val edgeMesh = if (surroundingEdgeGlow) courseEdgeGlowMesh(
+                    bounds ?: Rect(Offset.Zero, size), 20.dp.toPx(), edgeColor, edgeStrength
+                ) else null
+                val edgePaint = Paint().apply { color = Color.White }
                 val colorBlend = if (lightWallpaper) BlendMode.SrcOver else BlendMode.Plus
                 onDrawBehind {
                     if (bounds == null) {
@@ -850,13 +843,9 @@ internal fun Modifier.verticalGlassAccent(
                             drawVerticalGlassAccent(brushes, colorBlend)
                         }
                     }
-                    // Cached, clipped strokes wrap the top and sides in the course color.
-                    // They need no blur texture and leave the existing bottom illumination intact.
-                    if (edgeOutline != null) {
-                        drawOutline(edgeOutline, edgeLight, alpha = 0.045f * edgeStrength, style = Stroke(edgeWidth))
-                        drawOutline(edgeOutline, edgeLight, alpha = 0.075f * edgeStrength, style = Stroke(edgeWidth * 0.55f))
-                        drawOutline(edgeOutline, edgeLight, alpha = 0.14f * edgeStrength, style = Stroke(edgeWidth * 0.2f))
-                    }
+                    // Vertex interpolation gives a continuous soft falloff in one cached draw;
+                    // no per-card blur texture, runtime shader or stacked hard strokes.
+                    if (edgeMesh != null) drawContext.canvas.drawVertices(edgeMesh, BlendMode.Modulate, edgePaint)
                 }
             }
             .border(

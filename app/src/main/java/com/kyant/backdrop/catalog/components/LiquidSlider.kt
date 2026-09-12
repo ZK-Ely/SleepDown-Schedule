@@ -585,7 +585,7 @@ fun LiquidSlider(
                         }
                     )
                     // Keep the 36dp gesture track; only the visible thumb becomes smaller.
-                    .size(if (compactThumb) 32.dp else 40.dp, if (compactThumb) 20.dp else 24.dp)
+                    .size(if (compactThumb) 34.dp else 40.dp, if (compactThumb) 22.dp else 24.dp)
             )
         }
     }
