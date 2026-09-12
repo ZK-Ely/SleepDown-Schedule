@@ -10,6 +10,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorFlightGeometryTest {
+    @Test fun closeTapersTowardItsDestinationAndSettlesAtBothEndpoints() {
+        for (delta in listOf(-400f, 400f)) {
+            for (step in 0..100) {
+                val p = step / 100f
+                assertEquals(-courseEditorOpeningTaper(p, delta, 600f),
+                    courseEditorOpeningTaper(p, delta, 600f, closing = true), 0.00001f)
+            }
+            assertEquals(0f, courseEditorOpeningTaper(1f, delta, 600f, closing = true), 0f)
+            assertEquals(0f, courseEditorOpeningTaper(0f, delta, 600f, closing = true), 0f)
+        }
+    }
+
     @Test fun editorLensCornerScalesWithTheSampleTextureDensity() {
         val shape = CourseEditorMorphCornerShape(112f, 112f, 0.2f, sourceDensity = 3.5f)
         val size = Size(700f, 1200f)

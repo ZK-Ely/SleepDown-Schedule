@@ -124,7 +124,9 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
     }
 }
 
-internal data class CourseShortcutPlacement(val bounds: Rect, val pivotX: Float)
+internal data class CourseShortcutPlacement(val bounds: Rect, val pivotX: Float, val belowAnchor: Boolean) {
+    val pivotY: Float get() = if (belowAnchor) 0f else 1f
+}
 
 /** Only the single middle column opens centrally; even column counts have no central column. */
 internal fun courseShortcutPivot(columnIndex: Int, columnCount: Int, layoutDirection: LayoutDirection): Float {
@@ -141,9 +143,10 @@ internal fun courseShortcutPlacement(anchor: Rect, available: Rect, width: Float
     val h = height.coerceAtMost(available.height).coerceAtLeast(1f)
     val x = (anchor.left + anchor.width * pivot - w * pivot)
         .coerceIn(available.left, (available.right - w).coerceAtLeast(available.left))
-    val y = (anchor.top - h - gap)
+    val belowAnchor = anchor.top - h - gap < available.top
+    val y = (if (belowAnchor) anchor.bottom + gap else anchor.top - h - gap)
         .coerceIn(available.top, (available.bottom - h).coerceAtLeast(available.top))
-    return CourseShortcutPlacement(Rect(x, y, x + w, y + h), pivot)
+    return CourseShortcutPlacement(Rect(x, y, x + w, y + h), pivot, belowAnchor)
 }
 
 internal fun copiedShortcutCourse(course: CourseEntity, singleWeek: Int?): CourseEntity = course.copy(
@@ -256,13 +259,16 @@ internal fun CourseShortcutOverlay(
                     .size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() })
                     .graphicsLayer {
                         val progress = controller.progress.value
-                        transformOrigin = TransformOrigin(placement.pivotX, 1f)
+                        transformOrigin = TransformOrigin(placement.pivotX, placement.pivotY)
                         scaleX = 0.18f + 0.82f * progress
                         scaleY = 0.18f + 0.82f * progress
                         translationX = (source.left + source.width * placement.pivotX -
                             target.left - target.width * placement.pivotX) * (1f - progress)
-                        translationY = (source.top - target.bottom) * (1f - progress)
-                        rotationZ = (placement.pivotX - 0.5f) * 6f * (1f - progress)
+                        val originY = if (placement.belowAnchor) source.bottom else source.top
+                        val targetY = if (placement.belowAnchor) target.top else target.bottom
+                        translationY = (originY - targetY) * (1f - progress)
+                        rotationZ = (placement.pivotX - 0.5f) * 6f * (1f - progress) *
+                            (if (placement.belowAnchor) -1f else 1f)
                     }
             )
         }

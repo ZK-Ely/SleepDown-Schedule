@@ -51,11 +51,14 @@ data class CourseEditorWeekGrid(
 }
 
 /** The leading edge opens first; the trailing edge catches up with zero velocity at both ends. */
-internal fun courseEditorOpeningTaper(progress: Float, sourceDeltaY: Float, targetHeight: Float): Float {
+internal fun courseEditorOpeningTaper(
+    progress: Float, sourceDeltaY: Float, targetHeight: Float, closing: Boolean = false
+): Float {
     val p = progress.coerceIn(0f, 1f)
     val envelope = 16f * p * p * (1f - p).pow(2)
     val travel = (abs(sourceDeltaY) / targetHeight.coerceAtLeast(1f)).coerceIn(0f, 1f)
-    return -sign(sourceDeltaY) * 0.32f * envelope * kotlin.math.sqrt(travel)
+    val direction = if (closing) 1f else -1f
+    return direction * sign(sourceDeltaY) * 0.32f * envelope * kotlin.math.sqrt(travel)
 }
 
 /** Uses the measured source column, so density, hidden weekends and scroll offset stay aligned. */

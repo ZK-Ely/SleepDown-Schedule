@@ -3109,9 +3109,10 @@ fun WeekCourseBlock(
     // mode must not cancel the finger that is about to move the course.
     val bodyGestureModifier = Modifier.pointerInput(customTimeLocked, course.id, editWeek, currentSpan) {
         awaitEachGesture {
-            // Leave the initial contact to the Pager/vertical scroller. Consume only after
-            // long press wins, so their slop/velocity tracking is not interrupted by a card.
-            val down = awaitFirstDown(requireUnconsumed = false)
+            // Claim the card contact before the outer blank-area detector sees it. Pager
+            // scrolling still observes this down and wins once it consumes movement/slop.
+            val down = awaitFirstDown()
+            down.consume()
             val longPress = awaitLongPressOrCancellation(down.id)
             if (longPress == null) {
                 val up = currentEvent.changes.firstOrNull { it.id == down.id }

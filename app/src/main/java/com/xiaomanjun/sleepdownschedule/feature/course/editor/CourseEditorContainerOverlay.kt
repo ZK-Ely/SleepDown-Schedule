@@ -72,8 +72,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
@@ -108,7 +106,6 @@ import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
 import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.abs
@@ -136,7 +133,7 @@ private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f,
 // fit-to-source scale: the shell's clip does the reveal, so keep it close to 1. Lower values
 // reintroduce the shrunken-thumbnail look; 1.0 removes the sense of the content growing.
 private const val CourseEditorContentSettleScale = 0.94f
-// Prepare the actual target-size form before starting the shell, never at the final frames.
+// Prepare the target-size layout and present its host once before starting the shell.
 private const val CourseEditorPreparedFrameCount = 1
 // Each row settles over 340ms; 15ms staggering keeps the full reveal compact at 520ms.
 internal const val CourseEditorFormRevealDurationMillis = 520
@@ -342,8 +339,8 @@ internal fun CourseEditorContainerOverlayHost(
                             easing = LinearEasing
                         )
                     )
-                    // The form is already mounted. Only finish geometry here; background
-                    // depth continues independently of the interactive handoff.
+                    // The prepared form stays mounted, and its entrance keeps running.
+                    // Background depth continues independently of the geometry handoff.
                     updatePhase(CourseEditorOverlayPhase.Open)
                 }
                 // The background depth (blur + zoom) trails the card on a longer, gentler
@@ -361,6 +358,8 @@ internal fun CourseEditorContainerOverlayHost(
                 }
             }
         } else if (renderedRequest != null) {
+            // Keep only the morphing shell on exit; release inputs, Pager and form producers now.
+            editorContentMounted = false
             updatePhase(CourseEditorOverlayPhase.Closing)
             coroutineScope {
                 launch {
@@ -601,8 +600,9 @@ internal fun CourseEditorContainerOverlayHost(
             .coerceIn(6.dp.toPx(), 36.dp.toPx())
             .toDp()
     }
-    val taper = if (hasSourceTransform && overlayPhase == CourseEditorOverlayPhase.Opening) {
-        courseEditorOpeningTaper(rawProgress, sourceRect.center.y - targetRect.center.y, targetRect.height)
+    val taper = if (hasSourceTransform && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
+        courseEditorOpeningTaper(rawProgress, sourceRect.center.y - targetRect.center.y,
+            targetRect.height, closing = closingMorph)
     } else 0f
     val shellShape = remember(corner, density.density, taper) {
         if (taper == 0f) RoundedRectangle(corner)
@@ -756,17 +756,17 @@ private fun CourseEditorScaledContentLayer(
         return
     }
     val density = LocalDensity.current
-    val editorContentLayer = rememberGraphicsLayer()
     var pagerPresentation by remember(formData, course) {
         mutableStateOf<CourseEditorPagerPresentation?>(null)
     }
-    // Keep one form instance from Preparing through Closing. Layout and input construction
-    // finish before motion begins, and Opening -> Open only changes the shell lifecycle.
-    val formClosingShellRecorded = remember(formData, course) { AtomicBoolean(false) }
+    // One prepared form instance survives Opening -> Open. Closing disposes it at the host.
     val formStagger = remember(formData, course) { Animatable(0f) }
     val revealForm = phase == CourseEditorOverlayPhase.Opening || phase == CourseEditorOverlayPhase.Open
     LaunchedEffect(revealForm, formData, course) {
         if (revealForm) {
+            // A prepared form still enters afresh on every open, including an interrupted close.
+            formStagger.snapTo(0f)
+            withFrameNanos { }
             formStagger.animateTo(
                 1f,
                 tween(CourseEditorFormRevealDurationMillis, easing = LinearEasing)
@@ -804,6 +804,12 @@ private fun CourseEditorScaledContentLayer(
             // Follow the shell's animated corner instead of a fixed 32dp, which turned the
             // small early rectangle into a pill and rounded the reveal window too hard.
             .clip(RoundedRectangle(corner))
+            .drawWithContent {
+                // Observe the prepared layout outside the transparent content layer. Waiting
+                // for a recording inside alpha=0 delayed opening until the timeout instead.
+                if (phase == CourseEditorOverlayPhase.Preparing) onContentRecorded()
+                drawContent()
+            }
             .graphicsLayer {
                 alpha = contentAlpha
                 val blurPx = contentBlurRadiusPx
@@ -856,31 +862,6 @@ private fun CourseEditorScaledContentLayer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                .drawWithContent {
-                    // Freeze the existing form once for Closing; release it with the host.
-                    val formClosingShellRecord =
-                        phase == CourseEditorOverlayPhase.Closing &&
-                            formClosingShellRecorded.compareAndSet(false, true)
-                    if (phase == CourseEditorOverlayPhase.Preparing ||
-                        formClosingShellRecord
-                    ) {
-                        editorContentLayer.record {
-                            this@drawWithContent.drawContent()
-                        }
-                        if (phase == CourseEditorOverlayPhase.Preparing) {
-                            // Includes the measured Pager, input fields and header material.
-                            onContentRecorded()
-                        }
-                    }
-                    if (revealForm) {
-                        // Row entrances only change their graphics layers; no new form is
-                        // constructed at the geometry handoff or when the editor settles.
-                        this@drawWithContent.drawContent()
-                    } else {
-                        // Preparing and Closing replay the recorded target-size content.
-                        drawLayer(editorContentLayer)
-                    }
-                }
             ) {
                 run {
                     CompositionLocalProvider(LocalContentColor provides textColor) {
@@ -907,11 +888,8 @@ private fun CourseEditorScaledContentLayer(
                 }
             }
 
-            // Parent-data alignment is intentionally outside editorContentLayer. Recording the
-            // Canvas together with the form loses its BoxScope placement on some RenderNode replay
-            // paths and places the indicator at layer origin (top-left). This tiny live Canvas uses
-            // the same target-size parent and transform, so BottomCenter remains authoritative while
-            // the expensive Pager/forms stay cached.
+            // The form and indicator keep their target-size parent throughout the transition.
+            // No additional record/replay layer takes ownership away from the body Backdrop.
             pagerPresentation?.takeIf { it.visible && it.pageCount > 1 }?.let { presentation ->
                 ProjectPagerIndicator(
                     pagerState = presentation.pagerState,

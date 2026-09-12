@@ -5746,6 +5746,7 @@ private fun PersonalizeValueSlider(
     ) {
         PersonalizeSliderLabel(displayValue, label)
         LiquidControlSlider(
+            compactThumb = true,
             value = value,
             onValueChange = onCommit,
             valueRange = valueRange,
@@ -6596,6 +6597,7 @@ fun PersonalizePanel(
                                     scale = weekCardHeightScale,
                                     minimumScale = weekCardHeightScaleFloor
                                 ),
+                                compactThumb = true,
                                 onValueChange = {
                                     onWeekCardHeightScale(
                                         weekCardHeightScaleFromSlider(
@@ -7602,7 +7604,8 @@ fun LiquidControlSlider(
     snapValue: Float? = null,
     onSliderTouchActiveChange: (Boolean) -> Unit = {},
     visibilityThreshold: Float = 0.01f,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    compactThumb: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
     val previewDispatchScope = rememberCoroutineScope()
@@ -7681,6 +7684,7 @@ fun LiquidControlSlider(
                 visibilityThreshold = visibilityThreshold,
                 backdrop = backdrop,
                 snapValue = safeSnapValue,
+                compactThumb = compactThumb,
                 modifier = Modifier.fillMaxWidth()
             )
         } else {
