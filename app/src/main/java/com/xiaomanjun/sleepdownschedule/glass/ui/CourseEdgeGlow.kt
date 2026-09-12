@@ -9,12 +9,13 @@ import androidx.compose.ui.graphics.Vertices
 /** One cached gradient mesh, clipped by the real card outline at the call site. */
 internal fun courseEdgeGlowMesh(bounds: Rect, spread: Float, color: Color, strength: Float): Vertices? {
     if (bounds.width <= 0f || bounds.height <= 0f || spread <= 0f || strength <= 0f) return null
-    val feather = minOf(spread, bounds.width / 2f, bounds.height / 2f)
-    val xs = ((0..16).map { feather * it / 16f } +
-        (0..16).map { bounds.width - feather * it / 16f }).distinct().sorted()
-    val ys = ((0..16).map { feather * it / 16f } +
+    val topFeather = minOf(spread, bounds.width / 2f, bounds.height / 2f)
+    val sideFeather = topFeather * 0.55f
+    val xs = ((0..16).map { sideFeather * it / 16f } +
+        (0..16).map { bounds.width - sideFeather * it / 16f }).distinct().sorted()
+    val ys = ((0..16).map { topFeather * it / 16f } +
         (0..16).map { bounds.height * it / 16f }).distinct().sorted()
-    fun falloff(distance: Float): Float {
+    fun falloff(distance: Float, feather: Float): Float {
         val t = (distance / feather).coerceIn(0f, 1f)
         return (1f - t) * (1f - t) * (1f + 2f * t)
     }
@@ -25,7 +26,8 @@ internal fun courseEdgeGlowMesh(bounds: Rect, spread: Float, color: Color, stren
         val verticalFade = (1f - t) * (1f - t) * (1f + 2f * t)
         for (x in xs) {
             // Smoothly join top/left/right without hard concentric stroke boundaries.
-            val edge = 1f - (1f - falloff(x)) * (1f - falloff(bounds.width - x)) * (1f - falloff(y))
+            val edge = 1f - (1f - falloff(x, sideFeather)) *
+                (1f - falloff(bounds.width - x, sideFeather)) * (1f - falloff(y, topFeather))
             positions += bounds.topLeft + Offset(x, y)
             colors += color.copy(alpha = (0.20f * strength * edge * verticalFade).coerceIn(0f, 1f))
         }

@@ -819,7 +819,7 @@ internal fun Modifier.verticalGlassAccent(
     val bounds = morphAllocation?.localBounds()
     val clipShape = morphAllocation?.let { it.envelope.insetShapeFor(it.geometry()) } ?: shape
     val lightWallpaper = surroundingEdgeGlow && lightGlass
-    val edgeColor = if (lightWallpaper) androidx.compose.ui.graphics.lerp(accentColor, Color.Black, 0.14f) else accentColor
+    val edgeColor = accentColor
     val whiteStrength = if (lightWallpaper) 0.45f else 1f
     return this
             .clip(clipShape)
@@ -833,14 +833,19 @@ internal fun Modifier.verticalGlassAccent(
                 val edgeMesh = if (surroundingEdgeGlow) courseEdgeGlowMesh(
                     bounds ?: Rect(Offset.Zero, size), 20.dp.toPx(), edgeColor, edgeStrength
                 ) else null
-                val edgePaint = Paint().apply { color = Color.White }
-                val colorBlend = if (lightWallpaper) BlendMode.SrcOver else BlendMode.Plus
+                // Screen adds the course's colored light without darkening any backdrop channel.
+                // Apply the same lighting model in day/week views and light/dark glass styles.
+                val edgePaint = Paint().apply {
+                    color = Color.White
+                    blendMode = BlendMode.Screen
+                }
+                val colorBlend = if (surroundingEdgeGlow) BlendMode.Screen else BlendMode.Plus
                 onDrawBehind {
                     if (bounds == null) {
-                        drawVerticalGlassAccent(brushes, colorBlend)
+                        drawVerticalGlassAccent(brushes, colorBlend, shadeTop = !surroundingEdgeGlow)
                     } else {
                         inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
-                            drawVerticalGlassAccent(brushes, colorBlend)
+                            drawVerticalGlassAccent(brushes, colorBlend, shadeTop = !surroundingEdgeGlow)
                         }
                     }
                     // Vertex interpolation gives a continuous soft falloff in one cached draw;
@@ -945,8 +950,8 @@ private fun verticalGlassAccentBrushes(
     )
 }
 
-private fun DrawScope.drawVerticalGlassAccent(brushes: List<Brush>, colorBlend: BlendMode) {
-    drawRect(brushes[0])
+private fun DrawScope.drawVerticalGlassAccent(brushes: List<Brush>, colorBlend: BlendMode, shadeTop: Boolean) {
+    if (shadeTop) drawRect(brushes[0])
     drawRect(brushes[1], blendMode = colorBlend)
     drawRect(brushes[2])
 }
