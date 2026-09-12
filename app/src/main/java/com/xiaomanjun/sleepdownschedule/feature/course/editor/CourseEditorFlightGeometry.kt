@@ -55,7 +55,7 @@ internal fun courseEditorOpeningTaper(progress: Float, sourceDeltaY: Float, targ
     val p = progress.coerceIn(0f, 1f)
     val envelope = 16f * p * p * (1f - p).pow(2)
     val travel = (abs(sourceDeltaY) / targetHeight.coerceAtLeast(1f)).coerceIn(0f, 1f)
-    return -sign(sourceDeltaY) * 0.17f * envelope * travel
+    return -sign(sourceDeltaY) * 0.32f * envelope * kotlin.math.sqrt(travel)
 }
 
 /** Uses the measured source column, so density, hidden weekends and scroll offset stay aligned. */

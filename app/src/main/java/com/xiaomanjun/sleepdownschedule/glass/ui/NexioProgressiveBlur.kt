@@ -60,9 +60,9 @@ half4 progressiveBlur(float2 coord, float radius) {
     // 高半径时采样点距大于笔画宽，固定螺旋会把文字打成星点；
     // 逐像素旋转核 + 径向扰动，把规则点阵打散成细噪。
     float spin = hash12(coord) * 6.2831853;
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 32; i++) {
         float fi = float(i);
-        float r = radius * pow((fi + 0.5) / 64.0, 0.5);
+        float r = radius * pow((fi + 0.5) / 32.0, 0.5);
         r *= 0.90 + 0.20 * hash12(coord + float2(fi, 1.7));
         float a = fi * 2.39996323 + spin;
         float2 o = float2(cos(a), sin(a)) * r;

@@ -3452,6 +3452,8 @@ fun CourseScheduleAppUi(
             PersonalizePanel(
                 modifier = panelModifier.semantics { testTag = "benchmark_personalize_panel" },
                 drawSurface = false,
+                rowEntranceActive = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
+                    homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open,
                 state = visualState,
                 backdrop = homeAnchoredOverlayBackdrop,
                 mode = homeMode,
@@ -4479,7 +4481,7 @@ private fun HomeBackgroundBlurLayer(
     val frozenRecordKey = remember { AtomicReference<Any?>(null) }
     val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
     val sampleScale = HomeFrozenBlurSampleScale
-    val maximumBlurPx = with(density) { 12.dp.toPx() }
+    val maximumBlurPx = with(density) { 22.dp.toPx() }
     val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
         List(HomeLiveBlurStepCount + 1) { index ->
             if (index == 0) null else {
@@ -5315,6 +5317,7 @@ data class AddMenuAction(
     val label: String,
     val imageVector: ImageVector? = null,
     val iconTint: ComposeColor? = null,
+    val textTint: ComposeColor? = null,
     val onClick: () -> Unit
 )
 
@@ -5370,7 +5373,7 @@ fun AddMenuLiquidItem(
                     action.label,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = baseText,
+                    color = action.textTint ?: baseText,
                     maxLines = 1,
                     softWrap = false,
                     textAlign = TextAlign.Start
@@ -6355,6 +6358,7 @@ private fun WallpaperPaletteSampler(
 fun PersonalizePanel(
     modifier: Modifier = Modifier,
     drawSurface: Boolean = true,
+    rowEntranceActive: Boolean = true,
     state: AppState,
     backdrop: Backdrop?,
     mode: HomeMode,
@@ -6372,9 +6376,11 @@ fun PersonalizePanel(
     val rowReveal = remember { Animatable(0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        rowReveal.animateTo(1f, tween(580, easing = LinearEasing))
+    LaunchedEffect(rowEntranceActive) {
+        if (rowEntranceActive) {
+            withFrameNanos { }
+            rowReveal.animateTo(1f, tween(580, easing = LinearEasing))
+        }
     }
     fun Modifier.rowEntrance(index: Int): Modifier = graphicsLayer {
         val t = ((rowReveal.value * 580f - index * 15f) / 340f).coerceIn(0f, 1f)
@@ -6458,11 +6464,11 @@ fun PersonalizePanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedRectangle(18.dp))
                 .background(
                     ComposeColor.Black.copy(
                         alpha = 0.10f * (1f - previewProgress.coerceIn(0f, 1f))
-                    )
+                    ),
+                    shape = RoundedRectangle(18.dp)
                 )
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),

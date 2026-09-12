@@ -231,7 +231,10 @@ internal fun CourseShortcutOverlay(
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close { controller.copyRequest = request }
                     },
-                    AddMenuAction(R.drawable.ic_trash, "移除", iconTint = Color(0xFFFF453A)) {
+                    AddMenuAction(
+                        R.drawable.ic_trash, "移除课程",
+                        iconTint = Color(0xFFFF453A), textTint = Color(0xFFFF453A)
+                    ) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close { onRemove(request.course, request.week) }
                     }

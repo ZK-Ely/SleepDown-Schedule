@@ -20,6 +20,10 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
 import androidx.compose.foundation.layout.fillMaxSize
 import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
@@ -58,7 +62,6 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.courseGlassFlatFallbackAlpha
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.referenceLensSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
@@ -981,6 +984,7 @@ fun CourseGlassCard(
     sampledShape: Shape? = null,
     expandedOutlineLight: Boolean = false,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
+    surfaceBackdrop: LayerBackdrop? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
@@ -994,8 +998,6 @@ fun CourseGlassCard(
     val materialCrossfadeActive =
         occlusionPhase == CourseGlassOcclusionPhase.PostCloseRestore ||
             occlusionPhase == CourseGlassOcclusionPhase.Revealing
-    val renderFlatOcclusionFallback =
-        occlusionPhase == CourseGlassOcclusionPhase.Suspended || materialCrossfadeActive
     val previewState = LocalPersonalizationPreview.current
     val glassBackdrop = if (
         config.courseCardGlassEnabled &&
@@ -1056,13 +1058,13 @@ fun CourseGlassCard(
     val sampledSource = if (useSharedWallpaper) sharedWallpaper!! else glassBackdrop
     // Course highlights use a fixed cached vector instead of the Kyant directional shader.
     val cardEffects = if (useSharedWallpaper) {
-        liquidEffectFrame.copy(blur = null, useVibrancy = false, highlight = null)
-    } else liquidEffectFrame.copy(highlight = null)
+        liquidEffectFrame.materialEffectsOnly().copy(blur = null, useVibrancy = false)
+    } else liquidEffectFrame.materialEffectsOnly()
     val decorationEffectFrame = liquidEffectFrame.decorationOnly().copy(highlight = null)
     val presetHighlight = Modifier.presetCourseCardHighlight(
         shape = shape,
         alpha = liquidEffectFrame.highlight?.alpha ?: 0f,
-        enabled = { drawMaterialNodes },
+        enabled = { viewportMaterialVisible },
         bounds = { morphAllocation?.localBounds() }
     )
     val liquidSurfaceDraw: DrawScope.() -> Unit = {
@@ -1118,175 +1120,141 @@ fun CourseGlassCard(
                 )
         )
     Box(modifier = cardModifier) {
-        if (renderFlatOcclusionFallback) {
-            // This is intentionally only a clipped color fill: no Backdrop consumer, shader,
-            // highlight, inner shadow or offscreen surface. It keeps course identity and text
-            // readable while the expensive material graph is absent.
-            Box(
+        // Only sampled blur/lens is suspended. Tint and full-resolution decoration stay intact.
+        val surfaceContent: @Composable BoxScope.() -> Unit = {
+            val surfaceModifier = if (!renderSurface || (!mountMaterialNodes && (useGlass || simpleBlurBackdrop != null))) {
+                Modifier
+            } else if (useGlass) {
+                Modifier
+                    .matchParentSize()
+                    .sleepDownGlassSurface(
+                            backdrop = requireNotNull(sampledSource),
+                            descriptor = liquidDescriptor,
+                            material = tokens,
+                            shape = { shape },
+                            effectFrame = cardEffects,
+                            backdropSampleScale = when {
+                                morphAllocation != null -> 1f
+                                useSharedWallpaper -> com.kyant.backdrop.backdrops.SharedBlurSampleScale
+                                else -> activeBackdropSampleScale
+                            },
+                            cacheDecorations = morphAllocation == null,
+                            renderEnabled = { drawMaterialNodes },
+                            renderBounds = { morphAllocation?.localBounds() },
+                            allocationPaddingPx = morphAllocation?.paddingPx
+                    )
+            } else if (simpleBlurBackdrop != null) {
+                // Non-liquid mode still samples the content behind the course card, but
+                // deliberately omits lens/refraction/vibrancy.  This is a cheap Gaussian
+                // material rather than falling all the way back to an opaque rectangle.
+                Modifier
+                    .matchParentSize()
+                    .sleepDownGlassSurface(
+                        backdrop = simpleBlurBackdrop,
+                        descriptor = simpleDescriptor,
+                        material = simpleMaterial,
+                        renderEnabled = { drawMaterialNodes },
+                        shape = { shape },
+                        effectFrame = GlassEffectFrame(blur = simpleBlurValue.dp)
+                    )
+            } else {
                 Modifier
                     .matchParentSize()
                     .clip(shape)
                     .drawBehind {
-                        val glassProgress = if (
-                            occlusionPhase == CourseGlassOcclusionPhase.Revealing
-                        ) {
-                            materialRevealProgress().coerceIn(0f, 1f)
-                        } else {
-                            0f
-                        }
                         val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-                        val flatAlpha = courseSimpleBlurTintAlpha(
-                            cardAlpha = liveAlpha,
-                            quality = quality,
-                            hasWallpaper = hasWallpaper
-                        )
-                        // Outline-light cards keep the morph/flat-occlusion sheet colourless so the
-                        // bottom-lit material lights up when it re-takes over the crossfade.
-                        if (outlineLightEnabled) {
-                            drawRect(
-                                Color.White.copy(
-                                    alpha = courseGlassFlatFallbackAlpha(
-                                        flatAlpha * 0.55f,
-                                        glassProgress
-                                    )
-                                )
-                            )
-                        } else {
-                            drawRect(
-                                baseColor.copy(
-                                    alpha = courseGlassFlatFallbackAlpha(flatAlpha, glassProgress)
-                                )
-                            )
-                        }
-                    }
-            )
-        }
-        val separateDecoration = mountMaterialNodes && useGlass && !renderSurface
-        val surfaceModifier = if (!mountMaterialNodes || !renderSurface) {
-            Modifier
-        } else if (useGlass) {
-            Modifier
-                .matchParentSize()
-                .sleepDownGlassSurface(
-                        backdrop = requireNotNull(sampledSource),
-                        descriptor = liquidDescriptor,
-                        material = tokens,
-                        shape = { shape },
-                        effectFrame = cardEffects,
-                        backdropSampleScale = when {
-                            morphAllocation != null -> 1f
-                            useSharedWallpaper -> com.kyant.backdrop.backdrops.SharedBlurSampleScale
-                            else -> activeBackdropSampleScale
-                        },
-                        cacheDecorations = morphAllocation == null,
-                        renderEnabled = { drawMaterialNodes },
-                        renderBounds = { morphAllocation?.localBounds() },
-                        allocationPaddingPx = morphAllocation?.paddingPx,
-                        onDrawSurface = liquidSurfaceDraw
-                )
-                .then(presetHighlight)
-        } else if (simpleBlurBackdrop != null) {
-            // Non-liquid mode still samples the content behind the course card, but
-            // deliberately omits lens/refraction/vibrancy.  This is a cheap Gaussian
-            // material rather than falling all the way back to an opaque rectangle.
-            Modifier
-                .matchParentSize()
-                .sleepDownGlassSurface(
-                    backdrop = simpleBlurBackdrop,
-                    descriptor = simpleDescriptor,
-                    material = simpleMaterial,
-                    renderEnabled = { drawMaterialNodes },
-                    shape = { shape },
-                    effectFrame = GlassEffectFrame(
-                        blur = simpleBlurValue.dp,
-                        highlight = GlassHighlightFrame(
-                            style = GlassHighlightStyle.Default,
-                            alpha = 0.10f
-                        ),
-                        shadowAlpha = 0.12f,
-                        innerShadow = GlassInnerShadowFrame(radius = 3.dp, alpha = 0.08f)
-                    ),
-                    onDrawSurface = {
+                        val alpha = liveAlpha.coerceIn(0f, 1f)
                         drawRect(
                             baseColor.copy(
-                                alpha = courseSimpleBlurTintAlpha(
-                                    previewState?.cardAlpha ?: config.cardAlpha,
-                                    quality,
+                                alpha = if (
+                                    !config.courseCardGlassEnabled &&
+                                    !config.courseCardGaussianBlurEnabled &&
                                     hasWallpaper
-                                )
+                                ) {
+                                    // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
+                                    alpha.coerceAtLeast(0.35f)
+                                } else if (
+                                    !config.courseCardGlassEnabled &&
+                                    !config.courseCardGaussianBlurEnabled
+                                ) {
+                                    alpha.coerceAtLeast(0.92f)
+                                } else {
+                                    alpha.coerceAtLeast(0.86f)
+                                }
                             )
                         )
                     }
-                )
-        } else {
-            Modifier
-                .matchParentSize()
-                .clip(shape)
-                .drawBehind {
-                    val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
-                    val alpha = liveAlpha.coerceIn(0f, 1f)
-                    drawRect(
-                        baseColor.copy(
-                            alpha = if (
-                                !config.courseCardGlassEnabled &&
-                                !config.courseCardGaussianBlurEnabled &&
-                                hasWallpaper
-                            ) {
-                                // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
-                                alpha.coerceAtLeast(0.35f)
-                            } else if (
-                                !config.courseCardGlassEnabled &&
-                                !config.courseCardGaussianBlurEnabled
-                            ) {
-                                alpha.coerceAtLeast(0.92f)
-                            } else {
-                                alpha.coerceAtLeast(0.86f)
-                            }
+            }
+            Box((if (useGlass || simpleBlurBackdrop != null) materialAlphaModifier else Modifier).then(surfaceModifier))
+            if (useGlass) {
+                // Shared/downsampled consumers own only the expensive sampled backdrop. Keep tint,
+                // highlight, outer shadow and inner shadow at full resolution and per-card geometry.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .sleepDownGlassSurface(
+                            backdrop = glassBackdrop,
+                            descriptor = liquidDescriptor,
+                            material = tokens,
+                            shape = { shape },
+                            effectFrame = decorationEffectFrame,
+                            cacheDecorations = morphAllocation == null,
+                            renderEnabled = { viewportMaterialVisible },
+                            renderBounds = { morphAllocation?.localBounds() },
+                            allocationPaddingPx = morphAllocation?.paddingPx,
+                            sampleBackdrop = false,
+                            effectsOverride = {},
+                            onDrawSurface = liquidSurfaceDraw
                         )
-                    )
-                }
-        }
-        Box(materialAlphaModifier.then(surfaceModifier))
-        if (separateDecoration) {
-            // Shared/downsampled consumers own only the expensive sampled backdrop. Keep tint,
-            // highlight, outer shadow and inner shadow at full resolution and per-card geometry.
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .then(materialAlphaModifier)
-                    .sleepDownGlassSurface(
-                        backdrop = glassBackdrop,
-                        descriptor = liquidDescriptor,
-                        material = tokens,
+                        .then(presetHighlight)
+                )
+            } else if (simpleBlurBackdrop != null) {
+                Box(
+                    Modifier.matchParentSize().sleepDownGlassSurface(
+                        backdrop = simpleBlurBackdrop,
+                        descriptor = simpleDescriptor,
+                        material = simpleMaterial,
                         shape = { shape },
-                        effectFrame = decorationEffectFrame,
-                        cacheDecorations = true,
-                        renderEnabled = { drawMaterialNodes },
+                        effectFrame = GlassEffectFrame(
+                            blur = null,
+                            highlight = GlassHighlightFrame(style = GlassHighlightStyle.Default, alpha = 0.10f),
+                            shadowAlpha = 0.12f,
+                            innerShadow = GlassInnerShadowFrame(radius = 3.dp, alpha = 0.08f)
+                        ),
                         sampleBackdrop = false,
-                        effectsOverride = {},
-                        onDrawSurface = liquidSurfaceDraw
+                        cacheDecorations = true,
+                        renderEnabled = { viewportMaterialVisible },
+                        onDrawSurface = {
+                            drawRect(baseColor.copy(alpha = courseSimpleBlurTintAlpha(
+                                previewState?.cardAlpha ?: config.cardAlpha, quality, hasWallpaper
+                            )))
+                        }
                     )
-                    .then(presetHighlight)
-            )
+                )
+            }
+            // Full-resolution additive inner light, independent of the sampled blur/lens. The base
+            // tint fades toward the top while the brighter bottom light spreads with smooth falloff.
+            if (outlineLightEnabled) {
+                VerticalGlassAccentOverlay(
+                    accentColor = baseColor,
+                    shape = shape,
+                    lightGlass = lightGlass,
+                    intensity = (previewState?.cardAlpha ?: config.cardAlpha) *
+                        courseCardBrightnessAttenuation(
+                            config.wallpaperBrightness,
+                            outlineLightEnabled = true
+                        ),
+                    expanded = expandedOutlineLight,
+                    morphAllocation = morphAllocation,
+                    modifier = Modifier.matchParentSize()
+                )
+            }
         }
-        // Full-resolution additive inner light, independent of the sampled blur/lens. The base
-        // tint fades toward the top while the brighter bottom light spreads with smooth falloff.
-        if (outlineLightEnabled) {
-            VerticalGlassAccentOverlay(
-                accentColor = baseColor,
-                shape = shape,
-                lightGlass = lightGlass,
-                intensity = (previewState?.cardAlpha ?: config.cardAlpha) *
-                    courseCardBrightnessAttenuation(
-                        config.wallpaperBrightness,
-                        outlineLightEnabled = true
-                    ),
-                expanded = expandedOutlineLight,
-                morphAllocation = morphAllocation,
-                modifier = Modifier
-                    .matchParentSize()
-                    .then(materialAlphaModifier)
-            )
+        if (surfaceBackdrop != null) {
+            // Record the shell alone; the editor body and header are later siblings.
+            Box(Modifier.matchParentSize().glassBackdropProducer(surfaceBackdrop), content = surfaceContent)
+        } else {
+            surfaceContent()
         }
         content()
         if (pressed) {

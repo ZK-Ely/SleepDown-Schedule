@@ -1072,6 +1072,7 @@ internal fun HomeAnchoredMorphOverlayHost(
 ) {
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    var personalizeContentLaidOut by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
@@ -1082,17 +1083,19 @@ internal fun HomeAnchoredMorphOverlayHost(
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
             renderedRequest = request
-            panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
+            personalizeContentLaidOut = false
+            panelContentPrepared = true
             motionState.renderedKind = request.kind
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             var waitedFrames = 0
-            while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
+            while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0 ||
+                    (request.kind == HomeAnchoredOverlayKind.Personalize && !personalizeContentLaidOut))) {
                 withFrameNanos { }
                 waitedFrames++
             }
-            // Personalization opens as a shell. Mount its form only after geometry settles.
+            // Measure personalization before motion so its sliders do not mount at handoff.
             latestAwaitOpeningGate()
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
@@ -1237,7 +1240,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 adaptiveMetrics = adaptiveMetrics,
                 previewProgress = personalizePreviewProgress,
                 contentMounted = panelContentPrepared,
-                onContentLaidOut = {},
+                onContentLaidOut = { personalizeContentLaidOut = true },
                 onDismissRequest = { latestOnDismissRequest() },
                 sourceContent = { sourceModifier ->
                     sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
@@ -1797,10 +1800,11 @@ private fun BoxScope.HomePersonalizationAnimatedOverlay(
     }
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
     val formReveal = remember { Animatable(0f) }
-    val showForm = contentMounted && motionState.phase == HomeAnchoredOverlayPhase.Open
-    LaunchedEffect(showForm) {
-        formReveal.snapTo(0f)
-        if (showForm) formReveal.animateTo(1f, tween(220))
+    val showForm = contentMounted
+    val revealForm = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
+        motionState.phase == HomeAnchoredOverlayPhase.Open
+    LaunchedEffect(revealForm) {
+        formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
     }
     val targetWidth = with(density) { targetRect.width.toDp() }
     val targetHeight = with(density) { targetRect.height.toDp() }
@@ -2087,6 +2091,8 @@ private fun DeferredHomePersonalizeMorphPanel(
                             .graphicsLayer { alpha = surfaceAlphaProvider() },
                         shape = shape,
                         surfaceColor = surfaceColor,
+                        blurRadius = 22.dp,
+                        backdropSampleScale = 0.5f,
                         lensHeight = 16.dp,
                         lensAmount = 24.dp
                     ) { }

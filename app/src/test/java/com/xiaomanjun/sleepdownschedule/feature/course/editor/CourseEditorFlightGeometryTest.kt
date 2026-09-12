@@ -2,12 +2,32 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.runBlocking
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorFlightGeometryTest {
+    @Test fun editorLensCornerScalesWithTheSampleTextureDensity() {
+        val shape = CourseEditorMorphCornerShape(112f, 112f, 0.2f, sourceDensity = 3.5f)
+        val size = Size(700f, 1200f)
+        assertEquals(112f, shape.topStart.toPx(size, Density(3.5f)), 0.001f)
+        assertEquals(56f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
+    }
+
+    @Test fun strongerTaperPreservesPositiveLeadingAndTrailingWidths() {
+        for (step in 0..100) {
+            for (delta in listOf(-2000f, -300f, 0f, 300f, 2000f)) {
+                val taper = courseEditorOpeningTaper(step / 100f, delta, 600f)
+                assertTrue(taper.isFinite())
+                assertTrue("Taper must not fold the shell inside out", kotlin.math.abs(taper) < 0.5f)
+            }
+        }
+        assertTrue(kotlin.math.abs(courseEditorOpeningTaper(0.5f, 300f, 600f)) > 0.2f)
+    }
+
     @Test fun upperAndLowerSourcesHaveOppositeTrailingEdgesAndUndistortedEndpoints() {
         val upper = courseEditorOpeningTaper(0.4f, -400f, 600f)
         assertTrue(upper > 0f)

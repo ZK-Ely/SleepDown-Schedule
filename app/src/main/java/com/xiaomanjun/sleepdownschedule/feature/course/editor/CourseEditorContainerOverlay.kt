@@ -6,6 +6,9 @@ import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphContent
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
 
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
@@ -37,6 +40,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.ui.graphics.asComposePath
@@ -131,7 +136,7 @@ private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f,
 // fit-to-source scale: the shell's clip does the reveal, so keep it close to 1. Lower values
 // reintroduce the shrunken-thumbnail look; 1.0 removes the sense of the content growing.
 private const val CourseEditorContentSettleScale = 0.94f
-// Preparing contains only the shell; the form and its Pager mount at Open.
+// Prepare the actual target-size form before starting the shell, never at the final frames.
 private const val CourseEditorPreparedFrameCount = 1
 // Each row settles over 340ms; 15ms staggering keeps the full reveal compact at 520ms.
 internal const val CourseEditorFormRevealDurationMillis = 520
@@ -217,7 +222,8 @@ internal class CourseEditorMorphCornerShape(
     private val radiusX: Float,
     private val radiusY: Float,
     private val taper: Float = 0f,
-    topStart: CornerSize = CornerSize(minOf(radiusX, radiusY)),
+    private val sourceDensity: Float = 1f,
+    topStart: CornerSize = CornerSize((minOf(radiusX, radiusY) / sourceDensity).dp),
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
     bottomStart: CornerSize = topStart
@@ -256,6 +262,7 @@ internal class CourseEditorMorphCornerShape(
         radiusX = radiusX,
         radiusY = radiusY,
         taper = taper,
+        sourceDensity = sourceDensity,
         topStart = topStart,
         topEnd = topEnd,
         bottomEnd = bottomEnd,
@@ -335,8 +342,8 @@ internal fun CourseEditorContainerOverlayHost(
                             easing = LinearEasing
                         )
                     )
-                    // Content may mount as soon as the shell finishes; background depth
-                    // continues independently and must not delay the Open handoff.
+                    // The form is already mounted. Only finish geometry here; background
+                    // depth continues independently of the interactive handoff.
                     updatePhase(CourseEditorOverlayPhase.Open)
                 }
                 // The background depth (blur + zoom) trails the card on a longer, gentler
@@ -557,7 +564,7 @@ internal fun CourseEditorContainerOverlayHost(
             },
             backdropScale = motionState.backgroundZoom.value,
             backdropBlurPx = with(density) {
-                12.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
+                22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
             },
             useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
                 overlayPhase == CourseEditorOverlayPhase.Opening ||
@@ -599,7 +606,9 @@ internal fun CourseEditorContainerOverlayHost(
     } else 0f
     val shellShape = remember(corner, density.density, taper) {
         if (taper == 0f) RoundedRectangle(corner)
-        else with(density) { CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper) }
+        else with(density) {
+            CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper, sourceDensity = density.density)
+        }
     }
     // The source shell and the real form must hand off with one shared opacity curve.
     // Keeping the form fully opaque underneath the fading source was most visible for
@@ -635,7 +644,10 @@ internal fun CourseEditorContainerOverlayHost(
         CourseEditorOverlayPhase.Open,
         CourseEditorOverlayPhase.Idle -> 0f
     }
-    val editorFormBackdrop = backdrop
+    val editorFormBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "course-editor-shell"
+    )
     val textColor = if (backdrop != null) {
         LocalAdaptiveGlass.current.contentColor
     } else {
@@ -663,6 +675,7 @@ internal fun CourseEditorContainerOverlayHost(
             shape = shellShape,
             progress = sizeProgress,
             alpha = morphSurfaceAlpha,
+            surfaceBackdrop = editorFormBackdrop,
             modifier = if (materialAllocation == null) animatedModifier else Modifier.glassMorphHost(materialAllocation),
             morphAllocation = materialAllocation
         ) {
@@ -747,28 +760,13 @@ private fun CourseEditorScaledContentLayer(
     var pagerPresentation by remember(formData, course) {
         mutableStateOf<CourseEditorPagerPresentation?>(null)
     }
-    // Keep the heavy form unmounted throughout Opening. Open follows the shell completion,
-    // independently of the trailing background animation, and mounts the form immediately.
-    // 载入：顶栏先出现，向下逐行推进；每行从下方淡入、放大并上移到位。
-    // 关闭时卸载表单内容，并回放一帧已卸载表单的空壳，避免输入框残留。
-    var formMounted by remember(formData, course) { mutableStateOf(false) }
-    // Closing 需要录制一帧“表单已卸载”的空壳用于收回动画回放；打开新表单时重置。
+    // Keep one form instance from Preparing through Closing. Layout and input construction
+    // finish before motion begins, and Opening -> Open only changes the shell lifecycle.
     val formClosingShellRecorded = remember(formData, course) { AtomicBoolean(false) }
     val formStagger = remember(formData, course) { Animatable(0f) }
-    LaunchedEffect(phase, formData, course) {
-        if (phase == CourseEditorOverlayPhase.Closing) {
-            formMounted = false
-            return@LaunchedEffect
-        }
-        if (phase == CourseEditorOverlayPhase.Opening) {
-            formClosingShellRecorded.set(false)
-        }
-        if (phase == CourseEditorOverlayPhase.Open) formMounted = true
-    }
-    // Keep the reveal alive across Opening -> Open; phase changes must not cancel it.
-    LaunchedEffect(formMounted, formData, course) {
-        formStagger.snapTo(0f)
-        if (formMounted) {
+    val revealForm = phase == CourseEditorOverlayPhase.Opening || phase == CourseEditorOverlayPhase.Open
+    LaunchedEffect(revealForm, formData, course) {
+        if (revealForm) {
             formStagger.animateTo(
                 1f,
                 tween(CourseEditorFormRevealDurationMillis, easing = LinearEasing)
@@ -777,7 +775,7 @@ private fun CourseEditorScaledContentLayer(
     }
     // Top-to-bottom order, with overlapping, independently eased upward entrances.
     val courseEditorFormRowEntrance: (Int) -> Float = { rowIndex ->
-        if (!formMounted) {
+        if (phase == CourseEditorOverlayPhase.Preparing) {
             1f
         } else {
             val delayMillis = rowIndex.coerceIn(0, CourseEditorFormRowCount) * 15f
@@ -809,7 +807,9 @@ private fun CourseEditorScaledContentLayer(
             .graphicsLayer {
                 alpha = contentAlpha
                 val blurPx = contentBlurRadiusPx
-                compositingStrategy = CompositingStrategy.Offscreen
+                compositingStrategy = if (blurPx > 0.01f) {
+                    CompositingStrategy.Offscreen
+                } else CompositingStrategy.Auto
                 renderEffect = platformBlurRenderEffect(blurPx)
             }
             .drawWithContent {
@@ -834,7 +834,10 @@ private fun CourseEditorScaledContentLayer(
     ) {
         Box(
             modifier = Modifier
-                .size(
+                // size() alone obeyed the moving shell's constraints and remeasured the
+                // entire Pager/form at every frame. Fix its target size and place explicitly.
+                .wrapContentSize(align = Alignment.TopStart, unbounded = true)
+                .requiredSize(
                     width = with(density) { targetRect.width.toDp() },
                     height = with(density) { targetRect.height.toDp() }
                 )
@@ -854,11 +857,9 @@ private fun CourseEditorScaledContentLayer(
                 modifier = Modifier
                     .fillMaxSize()
                 .drawWithContent {
-                    // Closing：表单已卸载（formMounted=false 生效）后的首个绘制帧录制一次
-                    // 空壳，供收回动画回放，避免输入框在收回过程中残留。
+                    // Freeze the existing form once for Closing; release it with the host.
                     val formClosingShellRecord =
                         phase == CourseEditorOverlayPhase.Closing &&
-                            !formMounted &&
                             formClosingShellRecorded.compareAndSet(false, true)
                     if (phase == CourseEditorOverlayPhase.Preparing ||
                         formClosingShellRecord
@@ -867,25 +868,21 @@ private fun CourseEditorScaledContentLayer(
                             this@drawWithContent.drawContent()
                         }
                         if (phase == CourseEditorOverlayPhase.Preparing) {
-                            // Only the empty shell is prepared here; no Pager is mounted yet.
+                            // Includes the measured Pager, input fields and header material.
                             onContentRecorded()
                         }
                     }
-                    if (phase == CourseEditorOverlayPhase.Open) {
-                        // Closing records an empty shell, so caching the live form here only
-                        // records the complete input/Backdrop tree a second time for no consumer.
+                    if (revealForm) {
+                        // Row entrances only change their graphics layers; no new form is
+                        // constructed at the geometry handoff or when the editor settles.
                         this@drawWithContent.drawContent()
                     } else {
-                        // The form keeps its real target-size layout, but Opening/Closing replay
-                        // the prepared GPU layer. Text fields, pickers and their backdrop consumers
-                        // no longer re-record while the shell's clip and position change.
-                        // On Closing the form is unmounted first (formMounted = false), so the
-                        // replayed shell is clean and no input field lingers during the collapse.
+                        // Preparing and Closing replay the recorded target-size content.
                         drawLayer(editorContentLayer)
                     }
                 }
             ) {
-                if (formMounted) {
+                run {
                     CompositionLocalProvider(LocalContentColor provides textColor) {
                         NormalizedCourseEditorScreen(
                             formData = formData,
@@ -937,11 +934,12 @@ private fun CourseEditorAnimatedContainer(
     shape: androidx.compose.ui.graphics.Shape,
     progress: Float,
     alpha: Float,
+    surfaceBackdrop: LayerBackdrop,
     modifier: Modifier = Modifier,
     morphAllocation: GlassMorphAllocation? = null,
     content: @Composable () -> Unit
 ) {
-    val finalDialogBlur = 10f
+    val finalDialogBlur = 22f
     val editorBlur = interpolateFloat(
         config.courseCardBlur,
         finalDialogBlur,
@@ -954,6 +952,9 @@ private fun CourseEditorAnimatedContainer(
         modifier = modifier.graphicsLayer { this.alpha = alpha },
         shape = shape,
         blurOverride = editorBlur,
+        backdropSampleScale = 0.5f,
+        sampledShape = shape,
+        surfaceBackdrop = surfaceBackdrop,
         morphAllocation = morphAllocation
     ) {
         Box(Modifier.fillMaxSize()) {

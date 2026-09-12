@@ -1,6 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -902,6 +906,15 @@ private fun CourseEditorFormPage(
         ComposeColor.White.copy(alpha = 0.70f)
     }
     val editorFieldTextColor = readableOn(editorFieldSurface)
+    val formBodyBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "course-editor-form-body"
+    )
+    // Only the scrolling fields produce this layer. The fixed header consumes it as a
+    // later sibling, composited over the actual dialog shell, never the home timetable.
+    val headerBackdrop = if (backdrop != null) {
+        rememberGlassCombinedBackdrop(backdrop, formBodyBackdrop)
+    } else formBodyBackdrop
     // Row timing/easing is owned by the overlay; apply it once as an upward popup.
     // Other callers default to 1f and remain stationary.
     val rowEntranceDensity = LocalDensity.current
@@ -919,6 +932,7 @@ private fun CourseEditorFormPage(
         // 逐行飞入期间已组合，不会因懒加载错过入场动画。
         modifier = Modifier
             .fillMaxSize()
+            .glassBackdropProducer(formBodyBackdrop)
             .verticalScroll(rememberScrollState())
             .padding(
                 // The title/actions live above the scrolling form. Reserve their full glass band so
@@ -1098,7 +1112,7 @@ private fun CourseEditorFormPage(
     }
     CourseEditorFixedHeader(
         title = title,
-        backdrop = backdrop,
+        backdrop = headerBackdrop,
         config = config,
         onCancel = onCancel,
         onSave = onSave,
