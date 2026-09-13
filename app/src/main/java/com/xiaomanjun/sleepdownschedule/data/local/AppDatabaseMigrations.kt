@@ -616,6 +616,14 @@ private val MIGRATION_38_39 = object : Migration(38, 39) {
     }
 }
 
+private val MIGRATION_39_40 = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "courseCardColoredTextEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -654,7 +662,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_35_36,
     MIGRATION_36_37,
     MIGRATION_37_38,
-    MIGRATION_38_39
+    MIGRATION_38_39,
+    MIGRATION_39_40
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -824,6 +833,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
     ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "courseCardColoredTextEnabled", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "courseCardFontScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardColorMode", "TEXT NOT NULL DEFAULT 'SOLID'")
     ensureSqliteColumn(db, "schedule_config", "courseCardPalette", "TEXT NOT NULL DEFAULT ''")
@@ -865,6 +875,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -882,6 +893,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -926,6 +938,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         courseCardBlur REAL NOT NULL,
         courseCardGlassEnabled INTEGER NOT NULL,
         courseCardFontScale REAL NOT NULL,
+        courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0,
         courseCardColorMode TEXT NOT NULL DEFAULT 'SOLID',
         courseCardPalette TEXT NOT NULL DEFAULT '',
         alternateCardColorArgb INTEGER NOT NULL DEFAULT 4293516543,

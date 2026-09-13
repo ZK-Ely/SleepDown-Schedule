@@ -233,6 +233,7 @@ object BackupExportMapper {
                 courseCardOutlineLightEnabled = config.courseCardOutlineLightEnabled,
                 courseCardRefractionStrength = config.courseCardRefractionStrength,
                 courseCardGaussianBlurEnabled = config.courseCardGaussianBlurEnabled,
+                courseCardColoredTextEnabled = config.courseCardColoredTextEnabled,
                 courseCardFontScale = config.courseCardFontScale,
                 courseCardColorMode = config.courseCardColorMode.name,
                 courseCardPalette = config.courseCardPalette,

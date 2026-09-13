@@ -725,10 +725,8 @@ fun CourseScheduleAppUi(
             personalizationPendingCommitConfig = null
         }
     }
-    val pendingVisualState = (personalizationDraftConfig ?: personalizationPendingCommitConfig)
-        ?.takeIf { it.id == baseVisualState.config.id }
-        ?.let { baseVisualState.copy(config = it) }
-        ?: baseVisualState
+    val personalizationConfig = personalizationDraftConfig ?: personalizationPendingCommitConfig
+    val pendingVisualState = baseVisualState.withPersonalizationConfig(personalizationConfig)
     val glassBackendPolicy = remember { GlassBackendPolicy.LargeGlass }
     val glassSceneState = rememberGlassSceneState(
         sceneId = "home",
@@ -808,6 +806,17 @@ fun CourseScheduleAppUi(
         pendingCourseGroupEdit = null
         pendingCourseGroupDelete = emptyList()
     }
+    var courseRemoval by remember { mutableStateOf<CourseRemovalMotion?>(null) }
+    fun deleteHomeCourses(courses: List<CourseEntity>, week: Int?) {
+        val removal = CourseRemovalMotion(courses, week)
+        courseRemoval = removal
+        val onFailure = { if (courseRemoval === removal) courseRemoval = null }
+        if (week == null) viewModel.deleteCourses(courses, onFailure)
+        else viewModel.deleteCoursesSingleWeek(courses, week, onFailure)
+        dismissHomeDialog()
+        closeCourseEditor()
+    }
+    LaunchedEffect(screen, homeMode, state.config.id) { courseRemoval = null }
     LaunchedEffect(homeDialog) {
         if (homeDialog != null) {
             renderedHomeDialog = homeDialog
@@ -820,6 +829,22 @@ fun CourseScheduleAppUi(
     }
     val homeAnchoredMorphState = rememberHomeAnchoredMorphState()
     val courseShortcuts = remember(appScope) { CourseShortcutController(appScope) }
+    val latestCopyState = rememberUpdatedState(state)
+    val courseCopy = remember(appScope, viewModel) {
+        CourseCopyController(
+            scope = appScope,
+            validate = { candidate ->
+                val latest = latestCopyState.value
+                when {
+                    latest.config.id != candidate.scheduleId -> "课表已切换，请重新选择"
+                    else -> conflictWeeksForAddedCourses(listOf(candidate), latest.courses, latest.periods)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { "课程冲突，请换个位置" }
+                }
+            },
+            save = { candidate, result -> viewModel.copyCourses(listOf(candidate), result); Unit }
+        )
+    }
     val homeMenuDestinationMotionState = rememberHomeMenuDestinationMotionState()
     var homeMenuDestinationRequest by remember { mutableStateOf<HomeMenuDestinationRequest?>(null) }
     var homeMenuSourceHidden by remember { mutableStateOf(false) }
@@ -880,11 +905,24 @@ fun CourseScheduleAppUi(
     )
     // Retain data inputs as well as the drawn scene. Foreground editing still uses the live
     // ViewModel state. A copied course must enter layout before its existing landing animation.
-    val retainedHomeState = remember(baseVisualState.config.id) { RetainedHomeValue(pendingVisualState) }
-    val visualState = retainedHomeState.update(
-        pendingVisualState,
+    val retainedHomeState = remember(baseVisualState.config.id) { RetainedHomeValue(baseVisualState) }
+    val retainedVisualState = retainedHomeState.update(
+        baseVisualState,
         frozen = homeBackgroundFreezeActive && landingCourse == null
-    )
+    ).withPersonalizationConfig(personalizationConfig)
+    val removal = courseRemoval
+    val visualState = remember(retainedVisualState, removal) {
+        if (removal == null) retainedVisualState
+        else retainedVisualState.copy(courses = removal.retainIn(retainedVisualState.courses))
+    }
+    val removalReady = removal != null && removal.appliedTo(state.courses) &&
+        !homeBackgroundFreezeActive && renderedHomeDialog == null && editingCourseId == null
+    LaunchedEffect(removal, removalReady) {
+        if (removal != null && removalReady) {
+            removal.progress.animateTo(1f, tween(1100, easing = LinearEasing))
+            if (courseRemoval === removal) courseRemoval = null
+        }
+    }
     val retainedAgentState = remember(state.config.id) { RetainedHomeValue(state) }
     val agentVisualState = retainedAgentState.update(state, frozen = homeBackgroundFreezeActive)
     val homeBackgroundSession = remember(homeBackgroundFreezeActive) { Any() }
@@ -1647,6 +1685,12 @@ fun CourseScheduleAppUi(
         homeAnchoredOverlayRequest, pickerState.overlayVisible) {
         courseShortcuts.reset()
     }
+    LaunchedEffect(screen, homeMode, visualState.config.id, homeAnchoredOverlayRequest, pickerState.overlayVisible) {
+        courseCopy.reset()
+    }
+    LaunchedEffect(homeDisplayWeek, homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight) {
+        if (courseCopy.busy) courseCopy.reset() else courseCopy.clearSelection()
+    }
     suspend fun awaitHomeBackgroundFrame(routeEligible: Boolean) {
         if (!routeEligible || !homeBackgroundFreezeActive) return
         // The existing preparation phase supplies the clean source-hidden frame. Keep every
@@ -2046,6 +2090,8 @@ fun CourseScheduleAppUi(
         wallpaperImages.source != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     CompositionLocalProvider(
         LocalCourseShortcuts provides courseShortcuts,
+        LocalCourseCopy provides courseCopy,
+        LocalCourseRemoval provides courseRemoval,
         com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop provides
             sharedCourseBackdrop.takeIf { useSharedCourseBackdrop },
         LocalSharedTransitionScope provides activeSharedTransitionScope,
@@ -2069,13 +2115,14 @@ fun CourseScheduleAppUi(
         modifier = Modifier.fillMaxSize(),
         underlayModifier = Modifier
             .fillMaxSize()
-            .then(if (courseShortcuts.request != null) {
+            .then(if (courseShortcuts.request != null || courseCopy.active) {
                 Modifier.glassBackdropProducer(centeredDialogSceneBackdrop)
             } else {
                 Modifier.centeredDialogSceneProducer(centeredDialogSceneBackdrop)
             }),
         popupHost = {
             Box(Modifier.fillMaxSize()) {
+                CourseCopyOverlay(courseCopy, visualState.config, centeredDialogSceneBackdrop, backgroundBackdrop)
                 CourseShortcutOverlay(
                     controller = courseShortcuts,
                     config = visualState.config,
@@ -2083,7 +2130,7 @@ fun CourseScheduleAppUi(
                     cardBackdrop = backgroundBackdrop,
                     onEdit = { source -> openCourseEditor(source.course, source.week, source.bounds) },
                     onCopy = { source, draft ->
-                        openCourseEditor(source.course, source.week, source.bounds, copyDraft = draft)
+                        courseCopy.begin(source, draft)
                     },
                     onRemove = { course, week ->
                         pendingCourseGroupDelete = emptyList()
@@ -3151,7 +3198,7 @@ fun CourseScheduleAppUi(
                 drawSurface = false,
                 rowEntranceActive = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
                     homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open,
-                state = visualState,
+                state = pendingVisualState,
                 backdrop = homeAnchoredOverlayBackdrop,
                 mode = homeMode,
                 weekCardHeightScale = weekCardHeightScale,
@@ -3888,24 +3935,10 @@ fun CourseScheduleAppUi(
                 backdrop = homeDialogBackdrop,
                 config = state.config,
                 onSingle = {
-                    if (pendingCourseGroupDelete.isNotEmpty()) {
-                        viewModel.deleteCoursesSingleWeek(pendingCourseGroupDelete, dialog.targetWeek)
-                    } else {
-                        viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
-                    }
-                    pendingCourseGroupDelete = emptyList()
-                    dismissHomeDialog()
-                    closeCourseEditor()
+                    deleteHomeCourses(pendingCourseGroupDelete.ifEmpty { listOf(dialog.course) }, dialog.targetWeek)
                 },
                 onAll = {
-                    if (pendingCourseGroupDelete.isNotEmpty()) {
-                        viewModel.deleteCourses(pendingCourseGroupDelete)
-                    } else {
-                        viewModel.deleteCourse(dialog.course)
-                    }
-                    pendingCourseGroupDelete = emptyList()
-                    dismissHomeDialog()
-                    closeCourseEditor()
+                    deleteHomeCourses(pendingCourseGroupDelete.ifEmpty { listOf(dialog.course) }, null)
                 },
                 onCancel = {
                     pendingCourseGroupDelete = emptyList()
@@ -4058,12 +4091,10 @@ fun CourseScheduleAppUi(
                         backdrop = homeDialogBackdrop,
                         config = state.config,
                         onSingle = {
-                            viewModel.deleteCourseSingleWeek(dialog.course, dialog.targetWeek)
-                            dismissHomeDialog()
+                            deleteHomeCourses(listOf(dialog.course), dialog.targetWeek)
                         },
                         onAll = {
-                            viewModel.deleteCourse(dialog.course)
-                            dismissHomeDialog()
+                            deleteHomeCourses(listOf(dialog.course), null)
                         },
                         onCancel = {
                             dismissHomeDialog()
@@ -5340,6 +5371,7 @@ internal const val PersonalizeCardFontSlider = "card-font"
 private const val PersonalizeCardGlassChange = "card-glass"
 private const val PersonalizeCardOutlineLightChange = "card-outline-light"
 private const val PersonalizeCardGaussianBlurChange = "card-gaussian-blur"
+internal const val PersonalizeCardColoredTextChange = "card-colored-text"
 
 internal fun resolveActivePersonalizationSlider(
     currentKey: String?,
@@ -5402,6 +5434,9 @@ internal fun mergePersonalizationCandidate(
     )
     PersonalizeCardGaussianBlurChange -> current.copy(
         courseCardGaussianBlurEnabled = candidate.courseCardGaussianBlurEnabled
+    )
+    PersonalizeCardColoredTextChange -> current.copy(
+        courseCardColoredTextEnabled = candidate.courseCardColoredTextEnabled
     )
     else -> current
 }
@@ -6671,6 +6706,27 @@ fun PersonalizePanel(
                             backdrop = backdrop
                         )
                     }
+                }
+                Row(
+                    modifier = Modifier.rowEntrance(16)
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .personalizePreviewVisibility(previewSliderKey, previewProgress),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("彩色文字", style = MaterialTheme.typography.labelLarge)
+                    LiquidControlToggle(
+                        checked = state.config.courseCardColoredTextEnabled,
+                        compact = true,
+                        onCheckedChange = {
+                            onUpdateConfig(
+                                PersonalizeCardColoredTextChange,
+                                state.config.copy(courseCardColoredTextEnabled = it)
+                            )
+                        },
+                        backdrop = backdrop
+                    )
                 }
             }
         }

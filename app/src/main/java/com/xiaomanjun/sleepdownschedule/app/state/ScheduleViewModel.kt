@@ -116,7 +116,7 @@ class ScheduleViewModel(
 
     fun copyCourses(courses: List<CourseEntity>, onResult: (Boolean) -> Unit) =
         launchCourseMutation(onSuccess = { onResult(true) }, onFailure = { onResult(false) }) {
-            repository.addCourses(courses)
+            repository.copyCourses(courses)
         }
 
     fun updateCourse(course: CourseEntity) = launchCourseMutation("课程已更新") {
@@ -150,7 +150,8 @@ class ScheduleViewModel(
         repository.deleteCourse(course)
     }
 
-    fun deleteCourses(courses: List<CourseEntity>) = launchCourseMutation("课程已删除") {
+    fun deleteCourses(courses: List<CourseEntity>, onFailure: (() -> Unit)? = null) =
+        launchCourseMutation("课程已删除", onFailure = onFailure) {
         repository.deleteCourses(courses)
     }
 
@@ -159,8 +160,8 @@ class ScheduleViewModel(
             repository.deleteCourses(courses)
         }
 
-    fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) =
-        launchCourseMutation("课程已删除") {
+    fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int, onFailure: (() -> Unit)? = null) =
+        launchCourseMutation("课程已删除", onFailure = onFailure) {
             repository.deleteCoursesSingleWeek(courses, targetWeek)
         }
 

@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
 import androidx.compose.runtime.SideEffect
+import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
@@ -11,6 +12,8 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseRemovalMotion
 
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
@@ -692,8 +695,9 @@ internal fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
-    var pendingSingleWeekDelete by remember(state.config.id) {
-        mutableStateOf<Pair<CourseEntity, Int>?>(null)
+    val copyPlacementActive = LocalCourseCopy.current?.active == true
+    LaunchedEffect(copyPlacementActive) {
+        if (copyPlacementActive) weekEditMode = false
     }
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -708,14 +712,12 @@ internal fun HomeScreen(
             // edit session before it opens so returning to Home recreates the long-press entry
             // path instead of leaving the root pointer input in its edit-mode tap-only branch.
             weekEditMode = false
-            pendingSingleWeekDelete = null
         }
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 weekEditMode = false
-                pendingSingleWeekDelete = null
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -821,9 +823,7 @@ internal fun HomeScreen(
                             conflictFocusCourseId = conflictFocusCourseId,
                             conflictFocusCourseKey = conflictFocusCourseKey,
                             onResolveCourseConflict = onResolveCourseConflict,
-                            onDeleteCourseSingleWeek = { course, week ->
-                                pendingSingleWeekDelete = course to week
-                            },
+                            onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
                             onCourseClick = { course, week, sourceBounds ->
                                 onCourseClick(course, week, sourceBounds)
                             }
@@ -831,24 +831,6 @@ internal fun HomeScreen(
                     }
                 }
             }
-        }
-        pendingSingleWeekDelete?.let { (course, week) ->
-            LiquidAlertDialog(
-                title = "删除单周课程",
-                message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
-                actions = listOf(
-                    LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
-                        pendingSingleWeekDelete = null
-                    },
-                    LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
-                        pendingSingleWeekDelete = null
-                        onDeleteCourseSingleWeek(course, week)
-                    }
-                ),
-                backdrop = backdrop,
-                config = state.config,
-                onDismissRequest = { pendingSingleWeekDelete = null }
-            )
         }
     }
 }
@@ -2002,7 +1984,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale, displayedWeek = currentWeek)
     }
 }
 
@@ -2013,8 +1995,10 @@ internal fun DayCourseCardTextContent(
     showTime: Boolean,
     showWeeks: Boolean,
     textColor: ComposeColor,
-    tabletFontScale: Float
+    tabletFontScale: Float,
+    config: ScheduleConfigEntity
 ) {
+    val themeColor = if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2025,35 +2009,37 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        Text(course.name, style = titleStyle, color = textColor)
+        CourseCardText(course.name, style = titleStyle, color = textColor, themeColor = themeColor)
         if (showTime) {
-            Text(
+            CourseCardText(
                 courseHomeTimeDetail(course, periods),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.location.isNullOrBlank()) {
-            Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (!course.teacher.isNullOrBlank()) {
-            Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (showWeeks) {
-            Text(
+            CourseCardText(
                 "周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.note.isNullOrBlank()) {
-            Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
     }
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null) {
     val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
@@ -2099,7 +2085,9 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         backdrop = backdrop,
         config = config,
         course = course,
-        modifier = sharedModifier.then(entranceModifier),
+        modifier = sharedModifier.then(entranceModifier).then(
+            if (displayedWeek != null) Modifier.courseRemovalMotion(course, displayedWeek, resolvedCardColor) else Modifier
+        ),
         shape = RoundedRectangle(24.dp),
         expandedOutlineLight = true,
         onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
@@ -2110,7 +2098,8 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             showTime = showTime,
             showWeeks = showWeeks,
             textColor = textColor,
-            tabletFontScale = tabletFontScale
+            tabletFontScale = tabletFontScale,
+            config = config
         )
     }
     }

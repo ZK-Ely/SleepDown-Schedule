@@ -277,7 +277,7 @@ internal fun CourseShortcutOverlay(
     controller.copyRequest?.let { copy ->
         LiquidAlertDialog(
             title = "复制课程",
-            message = "复制“${copy.course.name}”的全部上课周，还是仅复制第${copy.week}周？下一步重新选择星期和时间，保存后创建副本。",
+            message = "复制“${copy.course.name}”的全部上课周，还是仅复制第${copy.week}周？选好范围后，在课表中点击目标位置，再点一次确认。",
             actions = listOf(
                 LiquidAlertAction("所有上课周", LiquidAlertActionStyle.Primary) {
                     controller.copyRequest = null

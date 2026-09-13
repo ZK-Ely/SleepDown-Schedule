@@ -851,7 +851,8 @@ private fun CourseEditorDaySourceContent(
         showTime = false,
         showWeeks = false,
         textColor = textColor,
-        tabletFontScale = tabletFontScale
+        tabletFontScale = tabletFontScale,
+        config = config
     )
 }
 

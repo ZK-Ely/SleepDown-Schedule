@@ -212,6 +212,7 @@ data class BackupScheduleConfig(
     val courseCardOutlineLightEnabled: Boolean = true,
     val courseCardRefractionStrength: Float = 0.5f,
     val courseCardGaussianBlurEnabled: Boolean = true,
+    val courseCardColoredTextEnabled: Boolean = false,
     val courseCardFontScale: Float,
     val courseCardColorMode: String = "SOLID",
     val courseCardPalette: String = "",
