@@ -919,7 +919,7 @@ fun CourseScheduleAppUi(
         !homeBackgroundFreezeActive && renderedHomeDialog == null && editingCourseId == null
     LaunchedEffect(removal, removalReady) {
         if (removal != null && removalReady) {
-            removal.progress.animateTo(1f, tween(1100, easing = LinearEasing))
+            removal.progress.animateTo(1f, tween(CourseRemovalDurationMillis, easing = LinearEasing))
             if (courseRemoval === removal) courseRemoval = null
         }
     }

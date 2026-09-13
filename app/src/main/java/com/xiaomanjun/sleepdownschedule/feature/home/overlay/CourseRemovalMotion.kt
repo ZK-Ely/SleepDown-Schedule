@@ -25,6 +25,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 internal val LocalCourseRemoval = staticCompositionLocalOf<CourseRemovalMotion?> { null }
+internal const val CourseRemovalDurationMillis = 1100
 
 /** Retain only the deleted rows until the erosion and its last particles have finished. */
 @Stable
@@ -91,6 +92,10 @@ internal fun Modifier.courseRemovalMotion(course: CourseEntity, week: Int, color
         val edge = Path()
         val softEdge = Stroke(width = 5.dp.toPx())
         val hotEdge = Stroke(width = 1.1.dp.toPx())
+        // Four taps over an 18 ms shutter follow the actual curved path. Their weights sum to
+        // one, keeping the light soft without raising brightness or blurring the whole scene.
+        val shutterWeights = floatArrayOf(0.52f, 0.25f, 0.15f, 0.08f)
+        val shutterProgress = 18f / CourseRemovalDurationMillis
         onDrawWithContent {
             val p = motion.progress.value.coerceIn(0f, 1f)
             if (p <= 0f) {
@@ -120,15 +125,20 @@ internal fun Modifier.courseRemovalMotion(course: CourseEntity, week: Int, color
             particles.forEach { particle ->
                 val age = (p - particle.birth) / particle.life
                 if (age > 0f && age < 1f) {
-                    val x = particle.origin.x + windDistance * particle.wind * age.pow(1.25f)
-                    val y = particle.origin.y - lift * age + flutterHeight *
-                        (sin(particle.flutter + age * 5f) - sin(particle.flutter))
                     val alpha = sin(age * PI.toFloat()).coerceAtLeast(0f).pow(0.65f)
-                    translate(x, y) {
-                        drawCircle(glows[particle.colorIndex], radius = glowRadius,
-                            center = Offset.Zero, alpha = alpha * 0.65f)
-                        drawCircle(palette[particle.colorIndex], radius = particle.radius * (1f - age * 0.65f),
-                            center = Offset.Zero, alpha = alpha)
+                    for (sample in shutterWeights.indices.reversed()) {
+                        val sampledAge = (age - shutterProgress / particle.life * sample / shutterWeights.lastIndex)
+                            .coerceAtLeast(0f)
+                        val x = particle.origin.x + windDistance * particle.wind * sampledAge.pow(1.25f)
+                        val y = particle.origin.y - lift * sampledAge + flutterHeight *
+                            (sin(particle.flutter + sampledAge * 5f) - sin(particle.flutter))
+                        val sampledAlpha = alpha * shutterWeights[sample]
+                        translate(x, y) {
+                            drawCircle(glows[particle.colorIndex], radius = glowRadius,
+                                center = Offset.Zero, alpha = sampledAlpha * 0.65f)
+                            drawCircle(palette[particle.colorIndex], radius = particle.radius * (1f - age * 0.65f),
+                                center = Offset.Zero, alpha = sampledAlpha)
+                        }
                     }
                 }
             }
