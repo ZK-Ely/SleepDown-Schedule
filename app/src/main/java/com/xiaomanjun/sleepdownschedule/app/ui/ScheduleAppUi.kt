@@ -322,7 +322,6 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
@@ -333,14 +332,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassMaterialRevealDurationMillis
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionTrace
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreGroupsPerBatch
-import com.xiaomanjun.sleepdownschedule.glass.courseGlassRestoreFrameDue
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreRegistry
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestoreRegistry
-import com.xiaomanjun.sleepdownschedule.glass.shouldSuspendCourseGlassMaterials
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.LegacyTransitionProfile
@@ -734,7 +725,7 @@ fun CourseScheduleAppUi(
             personalizationPendingCommitConfig = null
         }
     }
-    val visualState = (personalizationDraftConfig ?: personalizationPendingCommitConfig)
+    val pendingVisualState = (personalizationDraftConfig ?: personalizationPendingCommitConfig)
         ?.takeIf { it.id == baseVisualState.config.id }
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
@@ -787,24 +778,7 @@ fun CourseScheduleAppUi(
     var renderedHomeDialog by remember { mutableStateOf<HomeDialog?>(null) }
     var homeDialogVisible by remember { mutableStateOf(false) }
     val appScope = rememberCoroutineScope()
-    var courseGlassOcclusionPhase by remember {
-        mutableStateOf(CourseGlassOcclusionPhase.Live)
-    }
-    val courseGlassRestoreRegistry = remember { CourseGlassRestoreRegistry() }
-    var courseGlassOcclusionGeneration by remember { mutableIntStateOf(0) }
-    var courseGlassRestoredGroupKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var courseGlassFrozenRestoreGroupKeys by remember { mutableStateOf<List<String>>(emptyList()) }
-    var courseGlassForceCacheReplay by remember { mutableStateOf(false) }
-    var courseGlassFlatCacheDrawRequest by remember { mutableIntStateOf(0) }
-    val courseGlassFlatCacheRecordedRequest = remember { AtomicInteger(0) }
-    val courseGlassMaterialRevealProgress = remember { Animatable(1f) }
-    val courseGlassMaterialRevealProgressProvider: () -> Float = remember {
-        { courseGlassMaterialRevealProgress.value }
-    }
-    var courseGlassSessionScheduleId by remember { mutableIntStateOf(-1) }
-    var courseGlassSessionWeek by remember { mutableIntStateOf(-1) }
-    var courseGlassSessionWidthDp by remember { mutableIntStateOf(-1) }
-    var courseGlassSessionHeightDp by remember { mutableIntStateOf(-1) }
+
     var courseEditorRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
@@ -889,6 +863,31 @@ fun CourseScheduleAppUi(
         sourceButtonFollowThrough != null ||
         homeMenuActivityLaunched ||
         (destinationTransitionActive && !destinationCollapseHandedOff)
+
+    val personalizationPreviewActive by remember {
+        derivedStateOf {
+            personalizationSliderPreviewKey != null || personalizationPreviewProgress > 0.001f
+        }
+    }
+    val homeBackgroundOverlayActive =
+        homeAnchoredOverlayRequest != null || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
+            destinationTransitionActive || courseEditorRequest != null ||
+            courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle || courseShortcuts.request != null
+    val homeBackgroundFreezeActive = shouldUseFrozenHomeMorphBlur(
+        screenIsHome = screen is Screen.Home,
+        previewActive = personalizationPreviewActive,
+        overlayActive = homeBackgroundOverlayActive
+    )
+    // Retain data inputs as well as the drawn scene. Foreground editing still uses the live
+    // ViewModel state. A copied course must enter layout before its existing landing animation.
+    val retainedHomeState = remember(baseVisualState.config.id) { RetainedHomeValue(pendingVisualState) }
+    val visualState = retainedHomeState.update(
+        pendingVisualState,
+        frozen = homeBackgroundFreezeActive && landingCourse == null
+    )
+    val retainedAgentState = remember(state.config.id) { RetainedHomeValue(state) }
+    val agentVisualState = retainedAgentState.update(state, frozen = homeBackgroundFreezeActive)
+    val homeBackgroundSession = remember(homeBackgroundFreezeActive) { Any() }
 
     fun openHomeAnchoredOverlay(kind: HomeAnchoredOverlayKind, sourcePressedScale: Float = 1f) {
         if (homeAnchoredOverlayRequest != null ||
@@ -1390,10 +1389,6 @@ fun CourseScheduleAppUi(
             else -> "Idle"
         }
     )
-    val reduceWallpaperQualityForCourseEditor =
-        courseEditorOverlayPhase == CourseEditorOverlayPhase.Preparing ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
-            (courseEditorRequest != null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Open)
     // Sample the window-origin recorded home scene so the morph shell and the wallpaper
     // behind it stay aligned (see homeAnchoredOverlayBackdrop).
     val courseEditorBackdrop = rememberScreenScaledBackdrop(
@@ -1545,6 +1540,10 @@ fun CourseScheduleAppUi(
         )
     }
     val homeCaptureFrameKey = remember(
+        homeBackgroundSession,
+        homeReadabilityRootSize,
+        density.density,
+        density.fontScale,
         captureRenderToken,
         visualState.config,
         visualState.courses,
@@ -1561,6 +1560,9 @@ fun CourseScheduleAppUi(
         homeMenuSourceHidden
     ) {
         buildString {
+            append(System.identityHashCode(homeBackgroundSession)).append('|')
+            append(homeReadabilityRootSize).append('|').append(density.density).append('|')
+                .append(density.fontScale).append('|')
             append(captureRenderToken).append('|')
             append(visualState.config.hashCode()).append('|')
             append(visualState.courses.hashCode()).append('|')
@@ -1579,34 +1581,13 @@ fun CourseScheduleAppUi(
         }
     }
     val useFrozenHomeMorphBlur: () -> Boolean = {
-        val homeOverlayActive =
-            homeAnchoredOverlayRequest != null ||
-                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
-                homeMenuDestinationRequest != null ||
-                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
-        val courseEditorActive =
-            courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
-        !com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments.continuousMaterialDrawing && shouldUseFrozenHomeMorphBlur(
-            screenIsHome = screen is Screen.Home,
-            previewActive = personalizationSliderPreviewKey != null ||
-                personalizationPreviewProgress > 0.001f,
-            overlayActive = homeOverlayActive || courseEditorActive
-        )
+        homeBackgroundFreezeActive
     }
-    val useCachedWeekHomeSurface: () -> Boolean = {
-        val homeOverlayActive =
-            homeAnchoredOverlayRequest != null ||
-                homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
-                homeMenuDestinationRequest != null ||
-                homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
-        val courseEditorActive =
-            courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
-        !com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments.continuousMaterialDrawing && shouldReuseWeekHomeSurface(
+    val useCachedHomeSurface: () -> Boolean = {
+        shouldReuseHomeSurface(
             screenIsHome = screen is Screen.Home,
-            homeMode = homeMode,
-            previewActive = personalizationSliderPreviewKey != null ||
-                personalizationPreviewProgress > 0.001f,
-            overlayActive = homeOverlayActive || courseEditorActive,
+            previewActive = personalizationPreviewActive,
+            overlayActive = homeBackgroundOverlayActive,
             cachedScheduleId = recordedScheduleId.get(),
             currentScheduleId = visualState.config.id,
             cachedFrameKey = lastRecordedHomeFrameKey.get(),
@@ -1624,30 +1605,6 @@ fun CourseScheduleAppUi(
             homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
     val substantialCourseEditorCoverage =
         courseEditorRequest != null || courseEditorOverlayPhase != CourseEditorOverlayPhase.Idle
-    val substantialOverlaySessionActive =
-        substantialHomeAnchoredCoverage ||
-            substantialMenuDestinationCoverage ||
-            substantialCourseEditorCoverage
-    val courseGlassPersonalizationPreviewActive =
-        personalizationSliderPreviewKey != null || personalizationPreviewProgress > 0.001f
-    val weekCourseGlassOcclusionEligible =
-        !com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments.continuousMaterialDrawing &&
-        BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT &&
-            screen is Screen.Home &&
-            homeMode == HomeMode.Week &&
-            !courseGlassPersonalizationPreviewActive &&
-            substantialOverlaySessionActive
-    val weekCourseGlassVisibleMorphActive =
-        (substantialHomeAnchoredCoverage &&
-            (homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Opening ||
-                homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Open ||
-                homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing)) ||
-            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Opening ||
-            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Open ||
-            homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Opening ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Open ||
-            courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
     val homeBackgroundBlurClosing =
         homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing ||
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
@@ -1690,227 +1647,15 @@ fun CourseScheduleAppUi(
         homeAnchoredOverlayRequest, pickerState.overlayVisible) {
         courseShortcuts.reset()
     }
-    LaunchedEffect(
-        substantialOverlaySessionActive,
-        screen,
-        homeMode,
-        visualState.config.id,
-        homeDisplayWeek,
-        homeAdaptiveMetrics.screenWidth,
-        homeAdaptiveMetrics.screenHeight,
-        courseGlassPersonalizationPreviewActive
-    ) {
-        val widthDp = homeAdaptiveMetrics.screenWidth.value.roundToInt()
-        val heightDp = homeAdaptiveMetrics.screenHeight.value.roundToInt()
-        if (substantialOverlaySessionActive) {
-            courseGlassMaterialRevealProgress.snapTo(1f)
-            lastRecordedHomeFrameKey.set(null)
-            if (!weekCourseGlassOcclusionEligible) {
-                courseGlassForceCacheReplay = false
-                courseGlassRestoredGroupKeys = emptySet()
-                courseGlassFrozenRestoreGroupKeys = emptyList()
-                courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-                return@LaunchedEffect
-            }
-            val identityChanged = courseGlassSessionScheduleId >= 0 &&
-                (
-                    courseGlassSessionScheduleId != visualState.config.id ||
-                        courseGlassSessionWeek != homeDisplayWeek ||
-                        courseGlassSessionWidthDp != widthDp ||
-                        courseGlassSessionHeightDp != heightDp
-                    ) && courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Live
-            if (identityChanged) {
-                courseGlassForceCacheReplay = false
-                courseGlassRestoredGroupKeys = emptySet()
-                courseGlassFrozenRestoreGroupKeys = emptyList()
-                courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-                return@LaunchedEffect
-            }
-            courseGlassOcclusionGeneration += 1
-            courseGlassSessionScheduleId = visualState.config.id
-            courseGlassSessionWeek = homeDisplayWeek
-            courseGlassSessionWidthDp = widthDp
-            courseGlassSessionHeightDp = heightDp
-            courseGlassRestoredGroupKeys = emptySet()
-            courseGlassFrozenRestoreGroupKeys = emptyList()
-            courseGlassForceCacheReplay = false
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Preparing
-            CourseGlassOcclusionTrace.beginMorph(courseGlassOcclusionGeneration)
-            return@LaunchedEffect
-        }
-
-        if (courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Preparing) {
-            // The request disappeared before Opening. Nothing was suspended, so return directly.
-            courseGlassMaterialRevealProgress.snapTo(1f)
-            lastRecordedHomeFrameKey.set(null)
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            return@LaunchedEffect
-        }
-        if (
-            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.PostCloseRestore ||
-            courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Revealing
-        ) {
-            // A schedule/week/window/preview key changed while post-close material work was active.
-            // Never leave a flat fallback or stale cache latched.
-            courseGlassMaterialRevealProgress.snapTo(1f)
-            lastRecordedHomeFrameKey.set(null)
-            courseGlassForceCacheReplay = false
-            courseGlassRestoredGroupKeys = emptySet()
-            courseGlassFrozenRestoreGroupKeys = emptyList()
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            return@LaunchedEffect
-        }
-        if (courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Suspended) {
-            return@LaunchedEffect
-        }
-        val sessionStillMatches =
-            screen is Screen.Home &&
-                homeMode == HomeMode.Week &&
-                visualState.config.id == courseGlassSessionScheduleId &&
-                homeDisplayWeek == courseGlassSessionWeek &&
-                widthDp == courseGlassSessionWidthDp &&
-                heightDp == courseGlassSessionHeightDp
-        if (!sessionStillMatches) {
-            courseGlassMaterialRevealProgress.snapTo(1f)
-            lastRecordedHomeFrameKey.set(null)
-            courseGlassForceCacheReplay = false
-            courseGlassRestoredGroupKeys = emptySet()
-            courseGlassFrozenRestoreGroupKeys = emptyList()
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            return@LaunchedEffect
-        }
-
-        // Closing is already complete. Drop the exact Home cache onto a cheap real endpoint first:
-        // each course retains its layout, text, input and semantics over a clipped translucent color
-        // fill, while every Backdrop/decoration node remains absent.
-        courseGlassMaterialRevealProgress.snapTo(0f)
-        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.PostCloseRestore
-        courseGlassForceCacheReplay = false
-        withFrameNanos { }
-
-        // A course-editor save can legitimately change the card set while the exact cache is in
-        // control. Publish that one post-close topology now, then restore every resulting group at
-        // an equivalent 60 Hz cadence behind the opaque-enough flat fallback.
-        val groups = courseGlassRestoreRegistry.orderedGroupKeys(homeDisplayWeek)
-            .ifEmpty { courseGlassFrozenRestoreGroupKeys }
-        courseGlassFrozenRestoreGroupKeys = groups
-        val currentPageKeys = courseGlassRestoreRegistry.pageKeys(homeDisplayWeek)
-        var restored = emptySet<String>()
-        var previousRestoreTimestamp = 0L
-        // Restore a bounded pair per batch; one-group serialization made dense schedules
-        // wait for every current/adjacent-page group before any material could fade in.
-        suspend fun restoreBatchKeys(keys: List<String>) {
-        keys.chunked(CourseGlassRestoreGroupsPerBatch).forEachIndexed { index, groupKeys ->
-            if (index > 0) {
-                while (true) {
-                    val frameTimestamp = withFrameNanos { it }
-                    // Allow timestamp jitter at 60 Hz instead of accidentally waiting two frames.
-                    if (courseGlassRestoreFrameDue(previousRestoreTimestamp, frameTimestamp)) {
-                        previousRestoreTimestamp = frameTimestamp
-                        break
-                    }
-                }
-            } else {
-                previousRestoreTimestamp = withFrameNanos { it }
-            }
-            restored = restored + groupKeys
-            courseGlassRestoredGroupKeys = restored
-            CourseGlassOcclusionTrace.recordPostCloseRestoreFrame()
-        }
-        }
-        restoreBatchKeys(groups.filter { it in currentPageKeys })
-
-        // All material nodes now exist at alpha zero. Crossfade only their sampled surface and
-        // decoration over the stable flat cards; text/layout never participate in this animation.
-        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Revealing
-        withFrameNanos { }
-        coroutineScope {
-        launch {
-            restoreBatchKeys(groups.filterNot { it in currentPageKeys })
-        }
-        courseGlassMaterialRevealProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = CourseGlassMaterialRevealDurationMillis,
-                easing = CubicBezierEasing(0.22f, 0f, 0.18f, 1f)
-            )
-        )
-        }
-        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-        lastRecordedHomeFrameKey.set(null)
-        courseGlassRestoredGroupKeys = emptySet()
-        courseGlassFrozenRestoreGroupKeys = emptyList()
-    }
-
-    suspend fun awaitCourseGlassOpeningGate(routeEligible: Boolean) {
-        if (
-            !routeEligible ||
-            !weekCourseGlassOcclusionEligible ||
-            courseGlassOcclusionPhase != CourseGlassOcclusionPhase.Preparing
-        ) return
-        val generation = courseGlassOcclusionGeneration
-        var exactCacheSeenOnPreviousFrame = useCachedWeekHomeSurface() &&
-            weekHomeSurfaceUsesOffscreenCache.get()
-        var confirmed = false
-        for (attempt in 0 until 2) {
+    suspend fun awaitHomeBackgroundFrame(routeEligible: Boolean) {
+        if (!routeEligible || !homeBackgroundFreezeActive) return
+        // The existing preparation phase supplies the clean source-hidden frame. Keep every
+        // course node mounted; there is no flat-material capture or post-close rebuild.
+        repeat(3) {
+            if (useCachedHomeSurface() && weekHomeSurfaceUsesOffscreenCache.get()) return
             withFrameNanos { }
-            val exactCacheActive = useCachedWeekHomeSurface() &&
-                weekHomeSurfaceUsesOffscreenCache.get()
-            if (exactCacheActive && exactCacheSeenOnPreviousFrame) {
-                confirmed = true
-                break
-            }
-            exactCacheSeenOnPreviousFrame = exactCacheActive
-        }
-        if (
-            !confirmed ||
-            generation != courseGlassOcclusionGeneration ||
-            !substantialOverlaySessionActive
-        ) {
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            return
-        }
-        val shouldSuspend = shouldSuspendCourseGlassMaterials(
-            experimentEnabled = BuildConfig.SLEEPDOWN_LARGE_GLASS_EXPERIMENT,
-            weekMode = homeMode == HomeMode.Week,
-            exactCacheCoverActive = true,
-            substantialOverlayActive = true
-        )
-        if (!shouldSuspend) {
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            return
-        }
-        courseGlassFrozenRestoreGroupKeys =
-            courseGlassRestoreRegistry.orderedGroupKeys(homeDisplayWeek)
-        courseGlassRestoredGroupKeys = emptySet()
-        courseGlassMaterialRevealProgress.snapTo(0f)
-        courseGlassForceCacheReplay = true
-        courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Suspended
-        val flatCacheRequest = courseGlassFlatCacheDrawRequest + 1
-        courseGlassFlatCacheDrawRequest = flatCacheRequest
-        var flatCacheRecorded = false
-        for (attempt in 0 until 2) {
-            withFrameNanos { }
-            if (courseGlassFlatCacheRecordedRequest.get() >= flatCacheRequest) {
-                flatCacheRecorded = true
-                break
-            }
-        }
-        if (
-            !flatCacheRecorded ||
-            generation != courseGlassOcclusionGeneration ||
-            !substantialOverlaySessionActive
-        ) {
-            courseGlassMaterialRevealProgress.snapTo(1f)
-            courseGlassForceCacheReplay = false
-            courseGlassRestoredGroupKeys = emptySet()
-            courseGlassFrozenRestoreGroupKeys = emptyList()
-            courseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live
-            lastRecordedHomeFrameKey.set(null)
         }
     }
-
-    val effectiveCourseGlassOcclusionPhase = courseGlassOcclusionPhase
 
     suspend fun awaitRenderedSchedule(scheduleId: Int): Boolean {
         val generationBeforeSwitch = recordedHomeGeneration.get()
@@ -2314,8 +2059,6 @@ fun CourseScheduleAppUi(
         LocalCourseCardPalette provides homeCoursePalette,
         LocalCourseCardColorAssignments provides homeCourseColorAssignments,
         LocalGlassSceneState provides glassSceneState,
-        LocalCourseGlassRestoreRegistry provides courseGlassRestoreRegistry,
-        LocalCourseGlassMaterialRevealProgress provides courseGlassMaterialRevealProgressProvider,
         LocalCenteredDialogSceneBackdrop provides centeredDialogSceneBackdrop
     ) {
     // Home now owns an explicit Miuix root scaffold, matching the already-fixed secondary-page
@@ -2516,83 +2259,35 @@ fun CourseScheduleAppUi(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    val requestedFlatCache = courseGlassFlatCacheDrawRequest
-                    val cachedHomeActive = useCachedWeekHomeSurface() ||
-                        (courseGlassForceCacheReplay &&
-                            weekHomeSurfaceUsesOffscreenCache.get())
-                    val shouldRecordFlatCache =
-                        courseGlassOcclusionPhase == CourseGlassOcclusionPhase.Suspended &&
-                            courseGlassForceCacheReplay &&
-                            requestedFlatCache > courseGlassFlatCacheRecordedRequest.get()
-                    if (shouldRecordFlatCache) {
-                        // Opening still replays one neutral Home GPU layer, but replace its course
-                        // pixels once with the real flat fallback before the first visible morph
-                        // frame. No course Backdrop/decoration node exists in this recording.
-                        screenGraphicsLayer.alpha = 1f
+                    val freeze = useFrozenHomeMorphBlur()
+                    val needsCapture = lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
+                    screenGraphicsLayer.alpha = 1f
+                    if (needsCapture) {
                         screenGraphicsLayer.record { this@drawWithContent.drawContent() }
                         recordedScheduleId.set(visualState.config.id)
                         recordedHomeGeneration.incrementAndGet()
                         lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
-                        courseGlassFlatCacheRecordedRequest.set(requestedFlatCache)
+                    }
+                    if (freeze) {
                         if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
                             screenGraphicsLayer.compositingStrategy =
                                 androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
                         }
-                        drawLayer(screenGraphicsLayer)
-                    } else if (cachedHomeActive) {
-                        screenGraphicsLayer.alpha = 1f
-                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
-                            // The recorded display list contains every week-course Kyant node.
-                            // Flatten it only for popup motion so those child RenderNodes stop
-                            // participating in every blurred/zoomed frame. The original live tree
-                            // remains composed and resumes after the transition, avoiding a costly
-                            // dispose/recreate cycle and preserving every glass pixel.
-                            screenGraphicsLayer.compositingStrategy =
-                                androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
-                        }
-                        // Replay the already-recorded GPU scene while the outer depth layers and
-                        // the real overlay animate. Recording below those depth layers keeps the
-                        // cache neutral, so a later live-preview handoff cannot double its zoom.
+                        // Replay the neutral scene. Zoom and blur belong to the two outer
+                        // layers; the retained course tree is neither drawn nor re-recorded.
                         drawLayer(screenGraphicsLayer)
                     } else {
-                        screenGraphicsLayer.alpha = 1f
-                        if (lastRecordedHomeFrameKey.get() != homeCaptureFrameKey) {
-                            // Source-card and top-bar source visibility are part of the key. The
-                            // first preparation frame records a clean home with the real source
-                            // hidden, so the cached background cannot duplicate the moving clone.
-                            if (weekCourseGlassVisibleMorphActive) {
-                                CourseGlassOcclusionTrace.recordFullTreeRecordDuringMorph()
-                            }
-                            screenGraphicsLayer.record { this@drawWithContent.drawContent() }
-                            recordedScheduleId.set(visualState.config.id)
-                            recordedHomeGeneration.incrementAndGet()
-                            lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(true, false)) {
+                            screenGraphicsLayer.compositingStrategy =
+                                androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
                         }
-                        if (useCachedWeekHomeSurface()) {
-                            // A source handoff can change the frame key in the middle of Opening or
-                            // Closing. The old path recorded the complete week scene and then drew
-                            // that heavy tree live a second time before using the cache next frame.
-                            // Replay the just-recorded, pixel-identical layer immediately instead;
-                            // keeping Offscreen throughout also avoids an Auto -> Offscreen round
-                            // trip at the small-button handoff.
-                            if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
-                                screenGraphicsLayer.compositingStrategy =
-                                    androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
-                            }
-                            drawLayer(screenGraphicsLayer)
-                        } else {
-                            if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(true, false)) {
-                                screenGraphicsLayer.compositingStrategy =
-                                    androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
-                            }
-                            if (weekCourseGlassVisibleMorphActive) {
-                                CourseGlassOcclusionTrace.recordLiveDrawDuringMorph()
-                            }
-                            drawContent()
-                        }
+                        // A changed model/window has already been drawn by record above. Replay
+                        // that frame once instead of traversing the home tree twice on resume.
+                        if (needsCapture) drawLayer(screenGraphicsLayer) else drawContent()
                     }
                 }
         ) {
+        CompositionLocalProvider(LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive) {
         Scaffold(
             containerColor = ComposeColor.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -2729,7 +2424,6 @@ fun CourseScheduleAppUi(
                                     visualState.config,
                                     wallpaperImages,
                                     startupPhase,
-                                    reduceQuality = reduceWallpaperQualityForCourseEditor,
                                     previewState = personalizationPreviewState,
                                     onRecordKeyChanged = updateHomeWallpaperRecordKey
                                 )
@@ -2781,7 +2475,7 @@ fun CourseScheduleAppUi(
                             Screen.Home -> {
                                  HomeScreen(
                                      state = visualState,
-                                     agentState = state,
+                                     agentState = agentVisualState,
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
                                      dayViewMode = dayViewMode,
@@ -2935,8 +2629,6 @@ fun CourseScheduleAppUi(
                                          homeDialog = HomeDialog.ApplyCourseDelete(course, week)
                                      },
                                       weekEditInteractionEnabled = pickerState.phase is CustomizeUiState.Home,
-                                      courseGlassOcclusionPhase = effectiveCourseGlassOcclusionPhase,
-                                      courseGlassRestoredGroupKeys = courseGlassRestoredGroupKeys,
                                       onScheduleLongPress = {
                                         if (pickerState.phase is CustomizeUiState.Home) {
                                             pendingHomeAnchoredOverlay = null
@@ -3145,6 +2837,7 @@ fun CourseScheduleAppUi(
             modifier = Modifier.glassBackdropProducer(pickerSceneBackdrop)
         )
     }
+    } // end frozen background locals
     } // end cached home content
     } // end HomeBackgroundBlurLayer
     } // end HomeBackgroundZoomLayer
@@ -3425,7 +3118,7 @@ fun CourseScheduleAppUi(
             .zIndex(24f)
             .graphicsLayer { alpha = if (homeMenuSourceHidden) 0f else 1f },
         awaitOpeningGate = {
-            awaitCourseGlassOpeningGate(substantialHomeAnchoredCoverage)
+            awaitHomeBackgroundFrame(routeEligible = true)
         },
         onDismissRequest = {
             homeAnchoredOverlayRequest = null
@@ -3516,19 +3209,17 @@ fun CourseScheduleAppUi(
     // The first-level menu alone owns this final button follow-through. Destinations restore the
     // real button directly at their legacy pinch handoff and never enter this spring choreography.
     sourceButtonFollowThrough?.let { follow ->
-        val followProgress = sourceButtonFollowProgress.value
         val rest = addButtonBounds ?: return@let
         val density = LocalDensity.current
         val buttonSizePx = with(density) { 42.dp.toPx() }
-        val progress = followProgress
-        val center = Offset(
-            x = follow.startCenter.x + (rest.center.x - follow.startCenter.x) * progress,
-            y = follow.startCenter.y + (rest.center.y - follow.startCenter.y) * progress
-        )
-        val scale = follow.startScale + (1f - follow.startScale) * progress
         Box(
             modifier = Modifier
                 .offset {
+                    val progress = sourceButtonFollowProgress.value
+                    val center = Offset(
+                        x = follow.startCenter.x + (rest.center.x - follow.startCenter.x) * progress,
+                        y = follow.startCenter.y + (rest.center.y - follow.startCenter.y) * progress
+                    )
                     IntOffset(
                         (center.x - buttonSizePx / 2f).roundToInt(),
                         (center.y - buttonSizePx / 2f).roundToInt()
@@ -3545,6 +3236,7 @@ fun CourseScheduleAppUi(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        val scale = follow.startScale + (1f - follow.startScale) * sourceButtonFollowProgress.value
                         scaleX = scale
                         scaleY = scale
                     }
@@ -3618,7 +3310,7 @@ fun CourseScheduleAppUi(
         adaptiveMetrics = homeAdaptiveMetrics,
         homeMode = homeMode,
         modifier = Modifier.zIndex(90f),
-        awaitOpeningGate = { awaitCourseGlassOpeningGate(routeEligible = true) },
+        awaitOpeningGate = { awaitHomeBackgroundFrame(routeEligible = true) },
         onDismissRequest = ::closeHomeMenuDestination,
         sourceActions = homeAddActions,
         onSourceHandoff = { homeMenuSourceHidden = true },
@@ -3838,7 +3530,7 @@ fun CourseScheduleAppUi(
             config = state.config,
             adaptiveMetrics = homeAdaptiveMetrics,
             modifier = Modifier.zIndex(100f),
-            awaitOpeningGate = { awaitCourseGlassOpeningGate(routeEligible = true) },
+            awaitOpeningGate = { awaitHomeBackgroundFrame(routeEligible = true) },
             onDismissRequest = { closeCourseEditor() },
             onCopy = { courses, onResult ->
                 val sourceRequest = courseEditorRequest
@@ -4502,7 +4194,7 @@ private fun HomeBackgroundBlurLayer(
             }
         }
     }
-    // The live path is kept for day view and per-frame personalization preview. Reuse a small
+    // The live path is kept for idle Home and per-frame personalization preview. Reuse a small
     // bounded set of RenderEffect instances so those exceptional paths no longer compile a new
     // full-screen blur effect for every animation frame.
     val liveBlurEffects = remember(maximumBlurPx) {
@@ -4534,6 +4226,8 @@ private fun HomeBackgroundBlurLayer(
             .drawWithContent {
                 val frozenHomeScene = useFrozenHomeScene()
                 if (!frozenHomeScene) {
+                    frozenBlurLayer.renderEffect = null
+                    frozenRecordKey.set(null)
                     drawContent()
                     return@drawWithContent
                 }

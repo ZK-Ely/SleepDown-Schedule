@@ -446,10 +446,13 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current
     var readabilityShadow by remember(readability.bitmap, readability.config, readability.rootSize, color) {
         mutableStateOf(HomeReadabilityShadow.None)
     }
     val measuredModifier = modifier.onGloballyPositioned { coordinates ->
+        // Background zoom must not resample wallpaper pixels or restyle frozen labels.
+        if (backgroundFrozen) return@onGloballyPositioned
         val next = regionTextShadow(
             readability,
             coordinates.boundsInRoot(),
@@ -1604,7 +1607,10 @@ internal fun DayScheduleScreen(
                             .thenBy { it.name }
                     )
             }
-            val minuteClock by produceState(initialValue = LocalDateTime.now(), page) {
+            val backgroundFrozen = LocalHomeBackgroundFrozen.current
+            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen) {
+                if (backgroundFrozen) return@produceState
+                value = LocalDateTime.now()
                 while (true) {
                     val nowMillis = System.currentTimeMillis()
                     delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
@@ -2053,7 +2059,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
-    var ownBounds by remember { mutableStateOf<Rect?>(null) }
+    val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
@@ -2080,7 +2086,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             }
         )
         .onGloballyPositioned { coordinates ->
-            ownBounds = coordinates.boundsInRoot()
+            ownBounds[0] = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -2096,7 +2102,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         modifier = sharedModifier.then(entranceModifier),
         shape = RoundedRectangle(24.dp),
         expandedOutlineLight = true,
-        onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
+        onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
     ) {
         DayCourseCardTextContent(
             course = course,

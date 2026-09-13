@@ -107,7 +107,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -3000,15 +2999,19 @@ fun WeekCourseBlock(
      * lifted card is rendered by WeekEditOverlayHost outside that recorder.
      */
     val activeCardBackdrop = backdrop
-    val editJitter by if (editMode) {
-        rememberInfiniteTransition(label = "week-edit-jitter-${course.id}").animateFloat(
-            initialValue = -0.35f,
-            targetValue = 0.35f,
-            animationSpec = infiniteRepeatable(tween(durationMillis = 115), RepeatMode.Reverse),
-            label = "week-edit-jitter-value-${course.id}"
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
+    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current
+    val editJitterMotion = remember { Animatable(0f) }
+    LaunchedEffect(editMode, backgroundFrozen) {
+        if (backgroundFrozen) return@LaunchedEffect
+        if (editMode) {
+            editJitterMotion.snapTo(-0.35f)
+            editJitterMotion.animateTo(
+                0.35f,
+                infiniteRepeatable(tween(durationMillis = 115), RepeatMode.Reverse)
+            )
+        } else {
+            editJitterMotion.snapTo(0f)
+        }
     }
     val pressScale by animateFloatAsState(
         targetValue = if (bodyDragging || handleDragging) WeekEditLiftedScale else 1f,
@@ -3355,7 +3358,7 @@ fun WeekCourseBlock(
                         } else {
                             TransformOrigin.Center
                         }
-                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitter * editActivationProgress
+                        rotationZ = if (bodyDragging || handleDragging) 0f else editJitterMotion.value * editActivationProgress
                         scaleX = activeScale
                         scaleY = activeScale
                         val departureAlpha = if (conflictActionResolving) {

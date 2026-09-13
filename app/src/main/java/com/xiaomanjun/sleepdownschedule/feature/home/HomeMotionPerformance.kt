@@ -113,9 +113,8 @@ private fun smootherStep(value: Float): Float {
  * Decides whether the already-recorded home GPU layer can safely stand in for the live week tree.
  * Preview interactions deliberately bypass the cache so sliders still update the real schedule.
  */
-internal fun shouldReuseWeekHomeSurface(
+internal fun shouldReuseHomeSurface(
     screenIsHome: Boolean,
-    homeMode: HomeMode,
     previewActive: Boolean,
     overlayActive: Boolean,
     cachedScheduleId: Int,
@@ -123,9 +122,8 @@ internal fun shouldReuseWeekHomeSurface(
     cachedFrameKey: String?,
     currentFrameKey: String
 ): Boolean =
-    shouldUseFrozenWeekHomeBlur(
+    shouldUseFrozenHomeMorphBlur(
         screenIsHome = screenIsHome,
-        homeMode = homeMode,
         previewActive = previewActive,
         overlayActive = overlayActive
     ) &&

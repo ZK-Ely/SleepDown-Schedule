@@ -11,19 +11,19 @@ import org.junit.Test
 
 class HomeMotionPerformancePolicyTest {
     @Test
-    fun matchingWeekFrameIsReusedWhileOverlayIsActive() {
-        assertTrue(reuse(mode = HomeMode.Week, overlayActive = true))
+    fun matchingHomeFrameIsReusedWhileOverlayIsActive() {
+        assertTrue(reuse(overlayActive = true))
     }
 
     @Test
-    fun dayModeAndIdleWeekStayLive() {
-        assertFalse(reuse(mode = HomeMode.Day, overlayActive = true))
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = false))
+    fun idleHomeStaysLive() {
+        assertTrue(reuse(overlayActive = true))
+        assertFalse(reuse(overlayActive = false))
     }
 
     @Test
     fun personalizationPreviewAlwaysUsesLiveHome() {
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, previewActive = true))
+        assertFalse(reuse(overlayActive = true, previewActive = true))
         assertFalse(
             shouldUseFrozenWeekHomeBlur(
                 screenIsHome = true,
@@ -36,8 +36,8 @@ class HomeMotionPerformancePolicyTest {
 
     @Test
     fun staleScheduleOrFrameIsNeverReused() {
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, cachedScheduleId = 8))
-        assertFalse(reuse(mode = HomeMode.Week, overlayActive = true, cachedFrameKey = "old"))
+        assertFalse(reuse(overlayActive = true, cachedScheduleId = 8))
+        assertFalse(reuse(overlayActive = true, cachedFrameKey = "old"))
     }
 
     @Test
@@ -207,14 +207,12 @@ class HomeMotionPerformancePolicyTest {
     }
 
     private fun reuse(
-        mode: HomeMode,
         overlayActive: Boolean,
         previewActive: Boolean = false,
         cachedScheduleId: Int = 7,
         cachedFrameKey: String = "frame"
-    ): Boolean = shouldReuseWeekHomeSurface(
+    ): Boolean = shouldReuseHomeSurface(
         screenIsHome = true,
-        homeMode = mode,
         previewActive = previewActive,
         overlayActive = overlayActive,
         cachedScheduleId = cachedScheduleId,
