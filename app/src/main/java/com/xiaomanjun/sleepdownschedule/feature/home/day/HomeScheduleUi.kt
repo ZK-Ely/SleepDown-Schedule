@@ -1657,11 +1657,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedDayCourses = remember(dayCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    dayCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, dayCourses)
             }
             val primaryDayFinished = shouldShowSecondaryDay(
                 displayDayCount = displayDayCount,
@@ -1698,11 +1694,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedSecondaryCourses = remember(secondaryCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    secondaryCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, secondaryCourses)
             }
             // Two-day mode owns two calendar days, even when the following day is empty. The old
             // course-presence gate made the second day disappear while browsing dates whose next
@@ -1715,7 +1707,7 @@ internal fun DayScheduleScreen(
                     HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
                 }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
-                    item(key = "primary-day-part-$targetDate-${part.name}") {
+                    item(key = "primary-day-part-$targetDate-${part?.name ?: "OTHER"}") {
                         DayPartHeader(
                             part = part,
                             courses = coursesInPart,
@@ -1756,7 +1748,7 @@ internal fun DayScheduleScreen(
                         }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
-                        item(key = "secondary-day-part-$visibleDate-${part.name}") {
+                        item(key = "secondary-day-part-$visibleDate-${part?.name ?: "OTHER"}") {
                             DayPartHeader(
                                 part = part,
                                 courses = coursesInPart,
@@ -1864,11 +1856,23 @@ internal fun courseDayPart(
     return PeriodDayPart.entries.firstOrNull { firstPeriod in config.periodRange(it) }
 }
 
-private fun dayPartLabel(part: PeriodDayPart): String = when (part) {
+/** Every course must remain reachable even when its periods have no configured day part. */
+internal fun groupDayCourses(
+    config: ScheduleConfigEntity,
+    courses: List<CourseEntity>
+): List<Pair<PeriodDayPart?, List<CourseEntity>>> {
+    val byPart = courses.groupBy { courseDayPart(config, it) }
+    return (PeriodDayPart.entries + null).mapNotNull { part ->
+        byPart[part]?.let { part to it }
+    }
+}
+
+private fun dayPartLabel(part: PeriodDayPart?): String = when (part) {
     PeriodDayPart.MORNING -> "上午"
     PeriodDayPart.NOON -> "中午"
     PeriodDayPart.AFTERNOON -> "下午"
     PeriodDayPart.EVENING -> "晚上"
+    null -> "其他时间"
 }
 
 @Composable
@@ -1923,7 +1927,7 @@ private fun DayDateSectionHeader(
 
 @Composable
 private fun DayPartHeader(
-    part: PeriodDayPart,
+    part: PeriodDayPart?,
     courses: List<CourseEntity>,
     periods: List<PeriodEntity>,
     textColor: ComposeColor
