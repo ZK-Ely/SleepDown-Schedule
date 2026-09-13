@@ -26,7 +26,7 @@
 
 源码发现的重复工作包括背景材质重建、日卡片位置状态更新、缩放期文字采样及菜单动画读值范围。取消左右光减少新页网格创建开销；切周期间背景仍需实时移动，因此不会冻结 Pager，也没有删除相邻页预热。
 
-本机连接设备为 PLJ110，并非报告中的 OnePlus 13。本次未打包安装或运行实机帧率测试；不声称达到 120 FPS。
+本机连接设备为 PLJ110（Android 17 / API 37），并非报告中的 OnePlus 13。2026-09-14 已完成正式签名 Release 构建并覆盖安装到该设备，保留应用数据，未自动启动。尚未运行实机帧率测试，不声称达到 120 FPS。
 
 验证结果：
 
@@ -34,3 +34,4 @@
 - 五组定向测试共 33 项通过：`DayCourseGroupingTest`（7）、`DaySecondaryPreviewTest`（4）、`HomeMotionPerformancePolicyTest`（11）、`RetainedHomeValueTest`（3）、`CourseShortcutTest`（8）。
 - 常规单测任务在编译旧测试源码时被既有包迁移后缺少引用、备份构造参数过期等问题阻断，包含 `CourseGlassTintTest`、`BackupCodecTest`、`EduImportMapperTest` 等。使用临时 Gradle init script 限定 `compileGithubDebugUnitTestKotlin` 的源文件范围后执行上述五组真实测试；没有跳过其断言，也没有改动无关旧测试。不能据此宣称全量单测通过。
 - `git diff --check` 通过。默认 2 GB Gradle 堆曾因 GC thrashing 失败；后续统一使用单 worker、4 GB 堆完成构建和测试。
+- 2026-09-14：`assembleGithubRelease` 通过（单 worker、4 GB 堆），包含 R8、资源压缩、lintVital、打包与签名；APK v2 签名校验通过。`adb install -r` 返回 `Success`，安装后包信息为 `1.2.5_beta5` / versionCode `31`，更新时间为 `2026-09-14 00:23:58`。
