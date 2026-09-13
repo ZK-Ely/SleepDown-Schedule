@@ -6,14 +6,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 
-/** Keep the theme hue, lifting its brightness without a second glyph pass. */
+/** Follow the card's resolved light/dark foreground without reading wallpaper pixels per frame. */
 @Composable
 internal fun CourseCardText(
     text: String,
@@ -30,10 +31,20 @@ internal fun CourseCardText(
 ) {
     val foreground = remember(themeColor, color) {
         themeColor?.let {
-            val hsv = FloatArray(3)
-            android.graphics.Color.colorToHSV(it.toArgb(), hsv)
-            hsv[2] = (hsv[2] + (1f - hsv[2]) * 0.28f).coerceAtLeast(0.72f)
-            Color(android.graphics.Color.HSVToColor(hsv))
+            val useLightText = color.luminance() > 0.5f
+            val contrastColor = if (useLightText) Color.White else Color.Black
+            val base = it.copy(alpha = 1f)
+            // Add a white component on dark backgrounds; on light backgrounds move toward ink.
+            // Keep as much theme color as possible within the readable foreground brightness band.
+            var minimumMix = if (useLightText) 0.28f else 0.18f
+            var maximumMix = 1f
+            repeat(8) {
+                val mix = (minimumMix + maximumMix) / 2f
+                val luminance = lerp(base, contrastColor, mix).luminance()
+                if (if (useLightText) luminance >= 0.72f else luminance <= 0.08f) maximumMix = mix
+                else minimumMix = mix
+            }
+            lerp(base, contrastColor, maximumMix)
         } ?: color
     }
     Text(
