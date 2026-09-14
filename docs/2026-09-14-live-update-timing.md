@@ -34,4 +34,7 @@
 
 ## ColorOS 修正验证
 
-待本次构建、定向检查和覆盖安装完成后填写。
+- 源码提交 `2278b53`；`LiveUpdatePayloadTest` 11 项通过，包括目标秒数对齐、迟到回调跳过旧数字、课程边界和到期清理。
+- `assembleGithubRelease` 成功，包含 Kotlin、R8、资源压缩、lintVital、打包和正式签名。APK v2 验证通过，大小 7,127,399 bytes，SHA-256 为 `36cb53bb66f9e3aeea9580fa4e66f49710e741965dc4f423bbd0c45912ff2ac0`。
+- PLJ110（Android 17）覆盖安装返回 `Success`；设备更新时间为 `2026-09-14 12:18:30`，版本仍为 `1.2.5_beta6` / 31 的本地修订包。保留用户数据，未主动启动应用，未重发公开 Release。
+- ColorOS 原生倒计时不可见的证据来自用户实机反馈；本次未另行操作通知界面或测量锁屏刷新时延。
