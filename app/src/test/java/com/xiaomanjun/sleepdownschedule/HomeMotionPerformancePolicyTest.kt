@@ -146,30 +146,16 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
-    fun closingReturnsToFullResolutionBeforeBlurReachesClearEndpoint() {
+    fun frozenBlurRevealsOriginalPixelsContinuouslyAtClearEndpoint() {
         assertEquals(3, quantizeHomeBackgroundBlurStep(0.07f, closing = false))
         assertEquals(2, quantizeHomeBackgroundBlurStep(0.07f, closing = true))
-        assertFalse(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = false,
-                blurProgress = 0.2f
-            )
-        )
-        assertFalse(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = true,
-                blurProgress = HomeClosingFullResolutionBlurHandoffProgress + 0.01f
-            )
-        )
-        assertTrue(
-            shouldUseFullResolutionClosingBlur(
-                frozenHomeScene = true,
-                closing = true,
-                blurProgress = HomeClosingFullResolutionBlurHandoffProgress
-            )
-        )
+        val handoff = HomeFrozenBlurMinimumStep.toFloat() / HomeLiveBlurStepCount
+        assertEquals(0f, homeFrozenBlurAlpha(0f), 0.0001f)
+        assertEquals(0.5f, homeFrozenBlurAlpha(handoff / 2f), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(handoff), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(1f), 0.0001f)
+        assertEquals(0f, homeFrozenBlurAlpha(-1f), 0.0001f)
+        assertEquals(1f, homeFrozenBlurAlpha(2f), 0.0001f)
     }
 
     @Test

@@ -2265,6 +2265,13 @@ fun CourseScheduleAppUi(
                     } finally {
                         detailCaptureMaskActive.set(false)
                     }
+                    if (!recordCleanFrame) {
+                        // Recording already traversed this same visible frame. Present that
+                        // display list instead of drawing every backdrop consumer a second time.
+                        // Masked transition captures still need their separate unmasked draw.
+                        drawLayer(detailScreenGraphicsLayer)
+                        return@drawWithContent
+                    }
                 }
                 drawContent()
             }
@@ -4212,6 +4219,9 @@ private fun HomeBackgroundBlurLayer(
     content: @Composable BoxScope.() -> Unit
 ) {
     val density = LocalDensity.current
+    // Auto composition: this is just a display-list wrapper, never another full-screen texture.
+    // Its alpha can hide the sharp pass without changing the scene shared by foreground glass.
+    val clearSceneLayer = rememberGraphicsLayer()
     val frozenBlurLayer = rememberGraphicsLayer()
     val frozenRecordKey = remember { AtomicReference<Any?>(null) }
     val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
@@ -4243,60 +4253,54 @@ private fun HomeBackgroundBlurLayer(
                 val progress = blurProgress().coerceIn(0f, 1f)
                 val isClosing = closing()
                 val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
-                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
-                    frozenHomeScene = frozenHomeScene,
-                    closing = isClosing,
-                    blurProgress = progress
-                )
-                if (frozenHomeScene && !fullResolutionClosingBlur) {
+                if (frozenHomeScene) {
                     renderEffect = null
+                    val blurAlpha = homeFrozenBlurAlpha(progress)
+                    clearSceneLayer.alpha = if (blurAlpha < 1f) 1f else 0f
+                    frozenBlurLayer.alpha = blurAlpha
+                    frozenBlurLayer.renderEffect =
+                        frozenBlurEffects[step.coerceAtLeast(HomeFrozenBlurMinimumStep)]
                 } else {
                     renderEffect = liveBlurEffects[step]
+                    clearSceneLayer.alpha = 0f
+                    frozenBlurLayer.alpha = 0f
+                    frozenBlurLayer.renderEffect = null
                 }
             }
             .drawWithContent {
+                // Animation state is read only by graphicsLayer above. A zoom/blur/alpha tick
+                // changes RenderNode properties without invalidating this display list.
                 val frozenHomeScene = useFrozenHomeScene()
                 if (!frozenHomeScene) {
-                    frozenBlurLayer.renderEffect = null
                     frozenRecordKey.set(null)
                     drawContent()
                     return@drawWithContent
                 }
 
-                val progress = blurProgress().coerceIn(0f, 1f)
-                val isClosing = closing()
-                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
-                val fullResolutionClosingBlur = shouldUseFullResolutionClosingBlur(
-                    frozenHomeScene = true,
-                    closing = isClosing,
-                    blurProgress = progress
-                )
-                if (step == 0 || fullResolutionClosingBlur) {
-                    // Opening remains exclusively on the quarter-area frozen layer. Closing moves
-                    // back to the already-recorded full-resolution home while several dp of blur
-                    // still conceal the resolution handoff, so the final clear frame no longer
-                    // swaps both blur strength and source resolution at once.
-                    drawContent()
-                    return@drawWithContent
-                }
-
+                val fullSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
                 val reducedSize = IntSize(
                     width = (size.width * sampleScale).roundToInt().coerceAtLeast(1),
                     height = (size.height * sampleScale).roundToInt().coerceAtLeast(1)
                 )
-                // The week tree below is already a stable GPU GraphicsLayer. Record only when its
-                // semantic frame or window size changes; motion frames merely draw two textures.
-                // This mirrors Android's own Kawase pipeline: blur a downsampled surface, then
-                // upscale it. No Bitmap/ImageBitmap snapshot or CPU readback is involved.
+                // Both wrappers refer to the same retained scene. Record in Preparing, including
+                // at zero blur, rather than doing this work on the first moving frame. The blur
+                // has one fixed allocation from Opening through Closing; no bitmap readback or
+                // blur pyramid is created. Rounded sample dimensions map back to exact source
+                // dimensions so the sharp/blurred layers stay aligned on odd-sized windows.
                 if (
                     frozenRecordKey.get() != sceneKey ||
-                    frozenRecordSize.get() != reducedSize
+                    frozenRecordSize.get() != fullSize
                 ) {
+                    val scaleX = reducedSize.width / size.width
+                    val scaleY = reducedSize.height / size.height
+                    clearSceneLayer.record(size = fullSize) {
+                        this@drawWithContent.drawContent()
+                    }
                     frozenBlurLayer.record(size = reducedSize) {
                         withTransform({
                             scale(
-                                scaleX = sampleScale,
-                                scaleY = sampleScale,
+                                scaleX = scaleX,
+                                scaleY = scaleY,
                                 pivot = Offset.Zero
                             )
                         }) {
@@ -4304,14 +4308,13 @@ private fun HomeBackgroundBlurLayer(
                         }
                     }
                     frozenBlurLayer.pivotOffset = Offset.Zero
-                    frozenBlurLayer.scaleX = 1f / sampleScale
-                    frozenBlurLayer.scaleY = 1f / sampleScale
+                    frozenBlurLayer.scaleX = 1f / scaleX
+                    frozenBlurLayer.scaleY = 1f / scaleY
                     frozenRecordKey.set(sceneKey)
-                    frozenRecordSize.set(reducedSize)
+                    frozenRecordSize.set(fullSize)
                 }
 
-                frozenBlurLayer.renderEffect = frozenBlurEffects[step]
-                frozenBlurLayer.alpha = 1f
+                drawLayer(clearSceneLayer)
                 drawLayer(frozenBlurLayer)
             },
         content = content
