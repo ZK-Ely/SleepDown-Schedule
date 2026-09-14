@@ -76,6 +76,16 @@ internal data class LiveUpdatePayload(
         if (expiresAtMillis > 0L) add(expiresAtMillis)
     }.distinct().sorted()
 
+    /** SystemUI owns countdown ticks. The service only advances phases and the progress bar. */
+    fun nextRefreshAtMillis(nowMillis: Long): Long? {
+        if (shouldStop(nowMillis)) return null
+        val boundary = refreshBoundaries().firstOrNull { it > nowMillis }
+        val progressTick = if (statusAt(nowMillis).progressPercent != null) {
+            nowMillis - nowMillis % 60_000L + 60_000L
+        } else null
+        return listOfNotNull(boundary, progressTick).minOrNull()
+    }
+
     fun statusAt(nowMillis: Long = System.currentTimeMillis()): LiveUpdateStatus {
         if (kind == LiveUpdateKind.TOMORROW) {
             return LiveUpdateStatus(

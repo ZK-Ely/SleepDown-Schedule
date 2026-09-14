@@ -37,6 +37,7 @@ class LiveUpdateForegroundService : Service() {
             else -> {
                 NotificationScheduler.createChannel(this)
                 val payload = intent?.toLiveUpdatePayload() ?: restorePayload()
+                val renderedAtMillis = System.currentTimeMillis()
                 val notification = payload?.buildNotification(this)
                     ?: NotificationScheduler.notificationFromIntent(intent ?: Intent())
                 if (notification != null && payload != null) {
@@ -44,7 +45,7 @@ class LiveUpdateForegroundService : Service() {
                     storePayload(payload)
                     NotificationScheduler.logLiveUpdateIcon(this, notification)
                     startForeground(NotificationScheduler.liveUpdateId(), notification)
-                    startMinuteRefreshLoop()
+                    startRefreshLoop(renderedAtMillis)
                     Log.d("SleepDownLiveUpdate", "foreground service started")
                 } else {
                     Log.w("SleepDownLiveUpdate", "foreground service missing notification")
@@ -62,9 +63,12 @@ class LiveUpdateForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun startMinuteRefreshLoop() {
+    private fun startRefreshLoop(initialRenderedAtMillis: Long) {
         refreshJob?.cancel()
         refreshJob = serviceScope.launch {
+            // onStartCommand already posted this payload with startForeground.
+            var firstFrame = true
+            var renderedAtMillis = initialRenderedAtMillis
             while (isActive) {
                 val payload = activePayload ?: break
                 if (payload.shouldStop()) {
@@ -84,12 +88,15 @@ class LiveUpdateForegroundService : Service() {
                     break
                 }
                 try {
-                    val notification = payload.buildNotification(this@LiveUpdateForegroundService)
-                    NotificationScheduler.logLiveUpdateIcon(this@LiveUpdateForegroundService, notification)
-                    NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
-                        NotificationScheduler.liveUpdateId(),
-                        notification
-                    )
+                    if (!firstFrame) {
+                        renderedAtMillis = System.currentTimeMillis()
+                        val notification = payload.buildNotification(this@LiveUpdateForegroundService)
+                        NotificationScheduler.logLiveUpdateIcon(this@LiveUpdateForegroundService, notification)
+                        NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
+                            NotificationScheduler.liveUpdateId(),
+                            notification
+                        )
+                    }
                 } catch (securityException: SecurityException) {
                     Log.w("SleepDownLiveUpdate", "stop live update: notification permission revoked", securityException)
                     clearStoredPayload()
@@ -97,10 +104,21 @@ class LiveUpdateForegroundService : Service() {
                     stopSelf()
                     break
                 }
-                // Align the compact "X分钟" text with the wall-clock minute boundary. SystemUI's
-                // chronometer is intentionally not used because it replaces the promoted chip.
+                firstFrame = false
                 val now = System.currentTimeMillis()
-                delay((60_000L - now % 60_000L + 150L).coerceAtLeast(1_000L))
+                // Schedule from the frame we just built. If notification posting crosses a
+                // phase boundary, the delay below becomes 1ms instead of skipping that phase.
+                val nextRefresh = payload.nextRefreshAtMillis(renderedAtMillis)
+                if (nextRefresh == null) {
+                    // Building/posting may itself cross expiry. Run the cleanup above rather
+                    // than leave an expired foreground notification without another callback.
+                    if (payload.shouldStop(now)) continue
+                    break
+                }
+                // Honor second-precision custom times and expiry instead of waiting for the
+                // next wall-clock minute. This loop does not wake a sleeping CPU; the matching
+                // boundary alarm remains responsible for that, while SystemUI runs its timer.
+                delay((nextRefresh - now).coerceAtLeast(1L))
             }
         }
     }

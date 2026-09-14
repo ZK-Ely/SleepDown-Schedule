@@ -54,6 +54,38 @@ class LiveUpdatePayloadTest {
     }
 
     @Test
+    fun preparationUsesSystemTimerWithoutMinuteReposts() {
+        assertEquals(firstStart, coursePayload().nextRefreshAtMillis(epoch(7, 50)))
+    }
+
+    @Test
+    fun secondPrecisionClassAndBreakBoundariesPreemptTheProgressTick() {
+        val start = firstStart + 30_000L
+        val end = firstEnd + 15_000L
+        val resume = firstEnd + 45_000L
+        val payload = coursePayload().copy(segments = listOf(
+            LiveUpdateSegment(start, end),
+            LiveUpdateSegment(resume, secondEnd)
+        ))
+        assertEquals(start, payload.nextRefreshAtMillis(firstStart))
+        assertEquals(epoch(8, 1), payload.nextRefreshAtMillis(start))
+        assertEquals(end, payload.nextRefreshAtMillis(firstEnd))
+        assertEquals(LiveUpdatePhase.BREAK, payload.statusAt(end).phase)
+        assertEquals(resume, payload.nextRefreshAtMillis(end))
+        assertEquals(LiveUpdatePhase.IN_CLASS, payload.statusAt(resume).phase)
+    }
+
+    @Test
+    fun expiryPreemptsRefreshAndFinishedPayloadHasNoFurtherTick() {
+        val expiry = epoch(8, 20) + 15_000L
+        val payload = coursePayload().copy(expiresAtMillis = expiry)
+        assertEquals(expiry, payload.nextRefreshAtMillis(expiry - 10_000L))
+        assertNull(payload.nextRefreshAtMillis(expiry))
+        assertNull(coursePayload().copy(duringClassEnabled = false).nextRefreshAtMillis(firstStart))
+        assertNull(coursePayload().nextRefreshAtMillis(secondEnd))
+    }
+
+    @Test
     fun courseStateMovesFromPreparationThroughClassBreakAndFinish() {
         val payload = coursePayload()
 
