@@ -116,8 +116,8 @@ class LiveUpdateForegroundService : Service() {
                     break
                 }
                 // Honor second-precision custom times and expiry instead of waiting for the
-                // next wall-clock minute. This loop does not wake a sleeping CPU; the matching
-                // boundary alarm remains responsible for that, while SystemUI runs its timer.
+                // next wall-clock minute. Text and progress share this update; the matching
+                // boundary alarm still owns CPU wakeups when the device is asleep.
                 delay((nextRefresh - now).coerceAtLeast(1L))
             }
         }

@@ -694,19 +694,17 @@ object NotificationScheduler {
     internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
         val nowMillis = System.currentTimeMillis()
         val status = payload.statusAt(nowMillis)
-        val timerTarget = status.nextTransitionAtMillis?.takeIf { it > nowMillis }
         val placeText = payload.location.ifBlank { "未设置地点" }
-        val shortText: CharSequence? = when {
+        val shortText = when {
             payload.kind == LiveUpdateKind.TOMORROW -> "明日${payload.tomorrowCourseCount}门"
             status.phase == LiveUpdatePhase.BEFORE_CLASS -> liveUpdateChipText(
                 payload.chipTextMode,
                 payload.name,
-                placeText
+                placeText,
+                status.minutesToTransition
             )
             status.phase == LiveUpdatePhase.FINISHED -> "已下课"
-            // null enables SystemUI's timer; a static "X分钟" string takes precedence and
-            // would freeze until the application can post another notification.
-            else -> null
+            else -> liveUpdateCountdownChipText(status.minutesToTransition)
         }
         // Chip text is strictly a compact/island presentation choice. The
         // expanded notification always keeps the same complete course content.
@@ -747,16 +745,23 @@ object NotificationScheduler {
             )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setShowWhen(timerTarget != null)
-            .setUsesChronometer(timerTarget != null)
-            .setChronometerCountDown(timerTarget != null)
+            // User-confirmed ColorOS behavior: the native timer is swallowed by the promoted
+            // notification renderer. Keep both the chip and card on explicit minute text.
+            .setShowWhen(false)
+            .setUsesChronometer(false)
+            .setChronometerCountDown(false)
             .setCategory(android.app.Notification.CATEGORY_EVENT)
             .setColor(Notification.COLOR_DEFAULT)
-        timerTarget?.let { builder.setWhen(it) }
         status.progressPercent?.let { progress ->
+            val countdownLine = if (status.phase == LiveUpdatePhase.BREAK) {
+                "还有${status.minutesToTransition}分钟上课"
+            } else {
+                "还有${status.minutesToTransition}分钟下课"
+            }
+            val infoLine = "${status.detailText.substringBefore(" · 还有")} · ${payload.timeText}"
             builder
                 .setCategory(Notification.CATEGORY_PROGRESS)
-                .setContentText(expandedText)
+                .setContentText("$infoLine\n$countdownLine")
             if (Build.VERSION.SDK_INT >= 36) {
                 builder.setStyle(
                     Notification.ProgressStyle()
@@ -819,20 +824,17 @@ object NotificationScheduler {
         runCatching {
             builder.extras.putBoolean("android.requestPromotedOngoing", true)
         }
-        // Explicit text wins over when/chronometer. Preserve location/name chip preferences,
-        // but leave the field unset for countdown mode so the system owns every timer tick.
-        if (shortText != null) {
-            runCatching {
-                builder.javaClass
-                    .getMethod("setShortCriticalText", CharSequence::class.java)
-                    .invoke(builder, shortText)
-            }.recoverCatching {
-                builder.javaClass
-                    .getMethod("setShortCriticalText", String::class.java)
-                    .invoke(builder, shortText.toString())
-            }
-            builder.extras.putCharSequence("android.shortCriticalText", shortText)
+        // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
+        runCatching {
+            builder.javaClass
+                .getMethod("setShortCriticalText", CharSequence::class.java)
+                .invoke(builder, shortText)
+        }.recoverCatching {
+            builder.javaClass
+                .getMethod("setShortCriticalText", String::class.java)
+                .invoke(builder, shortText.toString())
         }
+        builder.extras.putCharSequence("android.shortCriticalText", shortText)
         return builder.build().also { notification ->
             val promotable = runCatching {
                 notification.javaClass
@@ -851,9 +853,13 @@ object NotificationScheduler {
     }
 
     private fun courseCardStatusText(status: LiveUpdateStatus): String = when (status.phase) {
-        LiveUpdatePhase.BEFORE_CLASS -> "即将上课"
+        LiveUpdatePhase.BEFORE_CLASS -> if (status.minutesToTransition <= 0) {
+            "准备上课"
+        } else {
+            "还剩${status.minutesToTransition}分钟"
+        }
         LiveUpdatePhase.IN_CLASS,
-        LiveUpdatePhase.BREAK -> "${status.statusText} · ${status.detailText.substringBefore(" · 还有")}"
+        LiveUpdatePhase.BREAK -> status.detailText
         LiveUpdatePhase.FINISHED -> "已下课"
         LiveUpdatePhase.TOMORROW -> status.statusText
     }
@@ -861,13 +867,17 @@ object NotificationScheduler {
     private fun liveUpdateChipText(
         mode: LiveUpdateChipTextMode,
         courseName: String,
-        placeText: String
-    ): CharSequence? = when (mode) {
-        LiveUpdateChipTextMode.COUNTDOWN -> null
+        placeText: String,
+        minutesLeft: Int
+    ): CharSequence = when (mode) {
+        LiveUpdateChipTextMode.COUNTDOWN -> liveUpdateCountdownChipText(minutesLeft)
         LiveUpdateChipTextMode.LOCATION -> placeText
         LiveUpdateChipTextMode.SHORT,
         LiveUpdateChipTextMode.NORMAL -> courseName
     }
+
+    private fun liveUpdateCountdownChipText(minutesLeft: Int): String =
+        "${minutesLeft.coerceAtLeast(0)}分钟"
 
     private fun actionPendingIntent(context: Context, action: String, requestCode: Int, muteKey: String, muteUntil: String): PendingIntent {
         val intent = Intent(context, LiveUpdateActionReceiver::class.java)

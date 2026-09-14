@@ -54,8 +54,18 @@ class LiveUpdatePayloadTest {
     }
 
     @Test
-    fun preparationUsesSystemTimerWithoutMinuteReposts() {
-        assertEquals(firstStart, coursePayload().nextRefreshAtMillis(epoch(7, 50)))
+    fun preparationRefreshesWhenTheDisplayedMinuteChanges() {
+        assertEquals(epoch(7, 51), coursePayload().nextRefreshAtMillis(epoch(7, 50)))
+        val payload = coursePayload().copy(segments = listOf(
+            LiveUpdateSegment(firstStart + 30_000L, firstEnd)
+        ))
+        val before = epoch(7, 50)
+        val next = requireNotNull(payload.nextRefreshAtMillis(before))
+        assertEquals(before + 30_000L, next)
+        assertEquals(11, payload.statusAt(next - 1L).minutesToTransition)
+        assertEquals(10, payload.statusAt(next).minutesToTransition)
+        // A late callback computes from current time instead of replaying missed minutes.
+        assertEquals(before + 90_000L, payload.nextRefreshAtMillis(next + 40_000L))
     }
 
     @Test
@@ -68,7 +78,7 @@ class LiveUpdatePayloadTest {
             LiveUpdateSegment(resume, secondEnd)
         ))
         assertEquals(start, payload.nextRefreshAtMillis(firstStart))
-        assertEquals(epoch(8, 1), payload.nextRefreshAtMillis(start))
+        assertEquals(epoch(8, 1) + 15_000L, payload.nextRefreshAtMillis(start))
         assertEquals(end, payload.nextRefreshAtMillis(firstEnd))
         assertEquals(LiveUpdatePhase.BREAK, payload.statusAt(end).phase)
         assertEquals(resume, payload.nextRefreshAtMillis(end))
