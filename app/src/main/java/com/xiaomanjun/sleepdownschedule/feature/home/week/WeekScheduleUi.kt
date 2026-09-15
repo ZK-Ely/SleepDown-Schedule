@@ -1754,6 +1754,10 @@ fun WeekDayColumn(
     val conflictGroups = remember(courses, periodIndexes, periods) {
         buildWeekConflictGroups(courses, periodIndexes, periods)
     }
+    // 当前展开的冲突组：groupIndex + 顶卡 bounds；null 表示无展开浮层
+    var expandedConflictGroup by remember(courses, periods) {
+        mutableStateOf<Pair<Int, Rect>?>(null)
+    }
     val renderedSegments = remember(
         conflictGroups,
         conflictFocusCourseId,
@@ -1790,19 +1794,6 @@ fun WeekDayColumn(
             val stackLayer = listIndex - renderedSegments.indexOfFirst { it.groupIndex == rendered.groupIndex }
             val stackOffset = (stackLayer.coerceAtLeast(0) * 3).dp
             val glassCandidateId = weekGlassCandidateId(dayIndex, segment, groupIndex)
-            val underlyingSegment = group.segments
-                .asSequence()
-                .filter { it.course.id != segment.course.id }
-                .filter {
-                    it.startPosition <= segment.endPosition &&
-                        it.endPosition >= segment.startPosition
-                }
-                .sortedWith(
-                    compareBy<WeekCourseSegment> { it.startPosition }
-                        .thenBy { it.endPosition }
-                        .thenBy { it.course.id }
-                )
-                .firstOrNull()
             val exactPlacement = exactTimeWeekPlacement(segment.course, periods)
             val segmentTopRows = exactPlacement?.topRows ?: segment.startPosition.toFloat()
             val segmentHeightRows = exactPlacement?.heightRows ?: segment.span.toFloat()
@@ -1843,14 +1834,10 @@ fun WeekDayColumn(
                     layerTravel = layerTravel,
                     stackIndex = groupIndex,
                     conflictWarning = group.hasConflict,
-                    // 折叠卡展开浮层里按节次顺序排列组内课程
-                    conflictGroupCourses = group.segments.map { it.course }.distinctBy { it.id },
-                    conflictUnderlyingCourse = underlyingSegment?.course,
-                    conflictUnderlyingPeriodIndex = underlyingSegment
-                        ?.let { periodIndexes[it.startPosition] },
-                    conflictUnderlyingSpan = underlyingSegment?.span ?: 0,
-                    onResolveConflict = { moved ->
-                        onResolveCourseConflict(segment.course, moved)
+                    // 折叠卡：点击（含气泡）展开浮层；浮层由 WeekDayColumn 统一渲染
+                    conflictGroupCount = group.courses.size,
+                    onExpandConflictGroup = { anchor ->
+                        expandedConflictGroup = groupIndex to anchor
                     },
                     editMode = editMode,
                     editWeek = editWeek,
@@ -1901,6 +1888,21 @@ fun WeekDayColumn(
                                 maxLines = 1
                     )
                 }
+            }
+        }
+        // 冲突折叠卡展开浮层：由本列统一渲染，点空白/返回键收起
+        expandedConflictGroup?.let { (groupIdx, anchor) ->
+            conflictGroups.getOrNull(groupIdx)?.let { group ->
+                ConflictGroupExpandOverlay(
+                    anchorBounds = anchor,
+                    courses = group.segments.map { it.course }.distinctBy { it.id },
+                    config = config,
+                    onCourseClick = { picked ->
+                        expandedConflictGroup = null
+                        onCourseClick(picked, null)
+                    },
+                    onDismiss = { expandedConflictGroup = null }
+                )
             }
         }
     }
@@ -2936,12 +2938,9 @@ fun WeekCourseBlock(
     layerTravel: Float = 1f,
     stackIndex: Int = 0,
     conflictWarning: Boolean = false,
-    /** 本卡所属冲突组的全部课程；size > 1 时本卡按"折叠卡"渲染，点击横向展开 */
-    conflictGroupCourses: List<CourseEntity> = emptyList(),
-    conflictUnderlyingCourse: CourseEntity? = null,
-    conflictUnderlyingPeriodIndex: Int? = null,
-    conflictUnderlyingSpan: Int = 0,
-    onResolveConflict: (CourseEntity) -> Unit = {},
+    /** 本卡所属冲突组的课程数；>1 时本卡按"折叠卡"渲染，点击触发 onExpandConflictGroup */
+    conflictGroupCount: Int = 0,
+    onExpandConflictGroup: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     editMode: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
@@ -3017,14 +3016,6 @@ fun WeekCourseBlock(
     }
     var bodyDragging by remember(course.id, editWeek) { mutableStateOf(false) }
     var handleDragging by remember(course.id, editWeek) { mutableStateOf(false) }
-    var conflictActionResolving by remember(course.id, editWeek) { mutableStateOf(false) }
-    var conflictFlightTarget by remember(course.id, editWeek) { mutableStateOf<CourseEntity?>(null) }
-    // 冲突折叠卡展开浮层：点空白/返回键由 Popup 的 onDismissRequest 收起
-    var conflictGroupExpanded by remember(course.id, editWeek) { mutableStateOf(false) }
-    val conflictPillDismiss = remember(course.id, editWeek) { Animatable(0f) }
-    val conflictCardFlight = remember(course.id, editWeek) { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    val screenHeightPx = with(density) { currentWindowSizeDp().height.toPx() }
     val edgeScrollThresholdPx = with(density) { 92.dp.toPx() }
     val measuredCardWidthPx = measuredCardWidth
         .takeIf { it > 1f }
@@ -3102,26 +3093,17 @@ fun WeekCourseBlock(
             initialPointerPosition = bounds.topLeft + pointerInSource
         )
     }
-    val liftedVisualActive = bodyDragging || handleDragging || conflictActionResolving
+    val liftedVisualActive = bodyDragging || handleDragging
     val resizeHandleInputEnabled =
         editMode &&
             !customTimeLocked &&
             !bodyDragging &&
-            !conflictActionResolving &&
             (
                 activeOverlayCourseId == null ||
                     (handleDragging && activeOverlayCourseId == course.id)
                 )
     LaunchedEffect(liftedVisualActive) {
         if (liftedVisualActive) onDragStateChanged(dayIndex, course.id) else onDragStateChanged(null, null)
-    }
-    LaunchedEffect(conflictWarning) {
-        if (!conflictWarning) {
-            conflictActionResolving = false
-            conflictFlightTarget = null
-            conflictPillDismiss.snapTo(0f)
-            conflictCardFlight.snapTo(0f)
-        }
     }
     val shortcuts = LocalCourseShortcuts.current
     val currentEditMode by rememberUpdatedState(editMode)
@@ -3145,9 +3127,9 @@ fun WeekCourseBlock(
     val finishBodyDrag by rememberUpdatedState(onFinishMoveOverlay)
     val cancelBodyDrag by rememberUpdatedState(onCancelWeekEditOverlay)
     val clickBody by rememberUpdatedState<() -> Unit> {
-        if (conflictGroupCourses.size > 1 && !currentEditMode && !customTimeLocked) {
+        if (conflictGroupCount > 1 && !currentEditMode && !customTimeLocked) {
             // 冲突折叠卡：点击展开旁边的浮层，浮层里再点具体课程看详情
-            conflictGroupExpanded = true
+            onExpandConflictGroup(ownBoundsRef[0] ?: Rect.Zero)
         } else {
             onCourseClick(course, ownBoundsRef[0])
         }
@@ -3299,92 +3281,6 @@ fun WeekCourseBlock(
                 }
                 .zIndex(if (liftedVisualActive) 3f else 0f)
         ) {
-            conflictUnderlyingCourse
-                ?.takeIf { conflictActionResolving && conflictUnderlyingSpan > 0 }
-                ?.let { underlyingCourse ->
-                    val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
-                    val underlyingPosition = conflictUnderlyingPeriodIndex
-                        ?.let(periodIndexes::indexOf)
-                        ?.takeIf { it >= 0 }
-                        ?: sourcePosition
-                    val underlyingHeight = (
-                        periodRowHeight * conflictUnderlyingSpan.toFloat() - 4.dp
-                        ).coerceAtLeast(18.dp)
-                    val ownerReveal =
-                        (conflictCardFlight.value / 0.14f).coerceIn(0f, 1f)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(
-                                y = periodRowHeight *
-                                    (underlyingPosition - sourcePosition).toFloat()
-                            )
-                            .height(underlyingHeight)
-                            .graphicsLayer { alpha = ownerReveal }
-                    ) {
-                        CourseGlassCard(
-                            backdrop = activeCardBackdrop,
-                            config = config,
-                            course = underlyingCourse,
-                            modifier = Modifier.fillMaxSize(),
-                            shape = cardShape,
-                            onClick = null
-                        ) {
-                            WeekCourseOverlayCardContent(underlyingCourse, config)
-                        }
-                    }
-                }
-            conflictFlightTarget?.takeIf { conflictActionResolving }?.let { target ->
-                val flightProgress = conflictCardFlight.value.coerceIn(0f, 1f)
-                val sourcePosition = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
-                val orderedSourcePeriods = course.periods
-                    .distinct()
-                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
-                val orderedTargetPeriods = target.periods
-                    .distinct()
-                    .sortedBy { periodIndexes.indexOf(it).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
-                val segmentPeriodOrdinal = orderedSourcePeriods.indexOf(periodIndex).coerceAtLeast(0)
-                val targetPeriod = orderedTargetPeriods
-                    .getOrNull(segmentPeriodOrdinal)
-                    ?: orderedTargetPeriods.firstOrNull()
-                    ?: periodIndex
-                val targetPosition = periodIndexes.indexOf(targetPeriod)
-                    .takeIf { it >= 0 }
-                    ?: sourcePosition
-                val targetOffsetX = (target.weekday - dayIndex) * gridColumnWidthPx
-                val targetOffsetY = (targetPosition - sourcePosition) * periodRowHeightPx
-                val flightArcPx = with(density) { 10.dp.toPx() }
-                val flightElevationPx = with(density) { 14.dp.toPx() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(height)
-                        .graphicsLayer {
-                            translationX = targetOffsetX * flightProgress
-                            translationY = targetOffsetY * flightProgress -
-                                sin(Math.PI * flightProgress).toFloat() * flightArcPx
-                            val flightScale = 0.985f + 0.015f * flightProgress
-                            scaleX = flightScale
-                            scaleY = flightScale
-                            alpha = (flightProgress / 0.12f).coerceIn(0f, 1f)
-                            shadowElevation =
-                                sin(Math.PI * flightProgress).toFloat().coerceAtLeast(0f) *
-                                    flightElevationPx
-                            shape = cardShape
-                        }
-                ) {
-                    CourseGlassCard(
-                        backdrop = activeCardBackdrop,
-                        config = config,
-                        course = target,
-                        modifier = Modifier.fillMaxSize(),
-                        shape = cardShape,
-                        onClick = null
-                    ) {
-                        WeekCourseOverlayCardContent(target, config)
-                    }
-                }
-            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3403,16 +3299,11 @@ fun WeekCourseBlock(
                         rotationZ = if (bodyDragging || handleDragging) 0f else editJitter * editActivationProgress
                         scaleX = activeScale
                         scaleY = activeScale
-                        val departureAlpha = if (conflictActionResolving) {
-                            1f - (conflictCardFlight.value / 0.12f).coerceIn(0f, 1f)
-                        } else {
-                            1f
-                        }
                         alpha = when {
                             isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
                             activeOverlayCourseId == course.id ->
                                 1f - (weekEditMotionState?.revealProgress ?: 1f)
-                            else -> departureAlpha
+                            else -> 1f
                         }
                     }
             ) {
@@ -3589,7 +3480,6 @@ fun WeekCourseBlock(
             }
             }
             if (conflictWarning && !editMode && !customTimeLocked) {
-                val pillDismissProgress = conflictPillDismiss.value.coerceIn(0f, 1f)
                 val pillTextColor =
                     if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
                 GlassSurface(
@@ -3599,13 +3489,7 @@ fun WeekCourseBlock(
                         .align(Alignment.TopEnd)
                         .offset(x = 2.dp, y = (-4).dp)
                         .size(width = 34.dp, height = 20.dp)
-                        .zIndex(8f)
-                        .graphicsLayer {
-                            val dismissScale = 1f - 0.30f * pillDismissProgress
-                            scaleX = dismissScale
-                            scaleY = dismissScale
-                            alpha = 1f - pillDismissProgress
-                        },
+                        .zIndex(8f),
                     shape = Capsule(),
                     tokens = GlassTokens.pill(intensity = 0.86f).copy(
                         surfaceAlpha = 0.32f,
@@ -3615,14 +3499,14 @@ fun WeekCourseBlock(
                     selected = true,
                     onClick = {
                         // 气泡与卡片主体一致：展开冲突浮层查看/选择组内课程
-                        if (conflictGroupCourses.size > 1 && !currentEditMode) {
+                        if (conflictGroupCount > 1 && !currentEditMode) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            conflictGroupExpanded = true
+                            onExpandConflictGroup(ownBoundsRef[0] ?: Rect.Zero)
                         }
                     }
                 ) {
                     Text(
-                        text = if (conflictGroupCourses.size > 1) "冲突${conflictGroupCourses.size}" else "冲突",
+                        text = if (conflictGroupCount > 1) "冲突$conflictGroupCount" else "冲突",
                         modifier = Modifier.align(Alignment.Center),
                         fontSize = 8.sp,
                         lineHeight = 10.sp,
@@ -3767,19 +3651,6 @@ fun WeekCourseBlock(
             ) {
                 renderResizeHandle(Modifier.fillMaxSize())
             }
-            if (conflictGroupExpanded && conflictGroupCourses.size > 1) {
-                ConflictGroupExpandOverlay(
-                    anchorBounds = ownBoundsRef[0],
-                    courses = conflictGroupCourses,
-                    cardHeight = displayedHeight,
-                    config = config,
-                    onCourseClick = { picked ->
-                        conflictGroupExpanded = false
-                        onCourseClick(picked, null)
-                    },
-                    onDismiss = { conflictGroupExpanded = false }
-                )
-            }
             }
         }
     }
@@ -3797,7 +3668,6 @@ private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
 private fun ConflictGroupExpandOverlay(
     anchorBounds: Rect?,
     courses: List<CourseEntity>,
-    cardHeight: Dp,
     config: ScheduleConfigEntity,
     onCourseClick: (CourseEntity) -> Unit,
     onDismiss: () -> Unit
@@ -3812,7 +3682,12 @@ private fun ConflictGroupExpandOverlay(
     val marginPx = with(density) { margin.toPx() }
     val screenWidthPx = with(density) { windowSize.width.toPx() }
     val screenHeightPx = with(density) { windowSize.height.toPx() }
-    val cardHeightPx = with(density) { cardHeight.toPx() }
+    // 迷你卡高度与被展开的折叠卡一致
+    val miniHeight = anchorBounds
+        ?.let { with(density) { it.height.toDp() } }
+        ?.coerceAtLeast(72.dp)
+        ?: 72.dp
+    val cardHeightPx = with(density) { miniHeight.toPx() }
     val contentWidthPx = (itemWidthPx * courses.size + gapPx * (courses.size - 1).coerceAtLeast(0))
         .coerceAtMost(screenWidthPx - marginPx * 2)
         .coerceAtLeast(itemWidthPx)
@@ -3866,7 +3741,6 @@ private fun ConflictGroupExpandOverlay(
             horizontalArrangement = Arrangement.spacedBy(gap)
         ) {
             courses.forEach { groupCourse ->
-                val miniHeight = cardHeight.coerceAtLeast(72.dp)
                 CourseGlassCard(
                     backdrop = null,
                     config = config,

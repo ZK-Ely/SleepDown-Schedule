@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,7 +22,12 @@ class SpecialSyncCoordinator(private val context: Context) {
     companion object {
         const val ScheduleName = "特殊同步"
         private const val TAG = "SpecialSync"
-        private const val MaxOcrAttempts = 5
+
+        /** 验证码 OCR 自动重试上限；仍失败则由界面弹窗请求手动输入 */
+        const val MaxOcrAttempts = 3
+
+        /** 每次识别失败后的短暂等待，避免连续请求验证码接口 */
+        const val OcrRetryDelayMillis = 500L
     }
 
     private val repository get() = (context.applicationContext as CourseScheduleApp).repository
@@ -58,6 +64,37 @@ class SpecialSyncCoordinator(private val context: Context) {
         return api.getCaptcha()
     }
 
+    /**
+     * OCR 接口连通性测试：拉一张真实验证码图，按当前识别方式识别并返回结果。
+     * @return 成功时返回 "识别结果：XXXX"；失败返回错误描述。
+     */
+    suspend fun testOcrConnectivity(): String {
+        val config = SpecialSyncStore.load(context)
+        if (config.ocrMode == SpecialSyncOcrMode.OPENAI) {
+            if (config.ocrApiKey.isBlank()) return "请先填写 API Key"
+            if (config.ocrModelName.isBlank()) return "请先填写模型名称"
+            if (config.ocrApiBaseUrl.isBlank()) return "请先填写请求地址"
+        }
+        api.attach(context)
+        val bytes = try {
+            api.getCaptcha()
+        } catch (error: Throwable) {
+            Log.w(TAG, "testOcrConnectivity captcha failed", error)
+            return "验证码获取失败：${error.message ?: "网络错误"}"
+        }
+        return try {
+            val code = SpecialSyncCaptchaOcr.recognize(bytes, config)
+            if (code.isBlank()) {
+                "接口连通但未识别出文字，请检查模型是否支持图片输入"
+            } else {
+                "连通正常，识别结果：$code"
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "testOcrConnectivity ocr failed", error)
+            "识别失败：${error.message ?: "网络错误"}"
+        }
+    }
+
     sealed class SyncResult {
         data class Success(val courseCount: Int, val summary: String) : SyncResult()
         data class NeedManualCaptcha(val message: String) : SyncResult()
@@ -91,12 +128,12 @@ class SpecialSyncCoordinator(private val context: Context) {
             }
         }
 
-        // 3) OCR 自动识别（自动换图重试）
+        // 3) OCR 自动识别（自动换图重试，上限 MaxOcrAttempts 次，失败间短暂等待）
         if (!loggedIn) {
             var sawCaptchaError = false
             var lastMessage = "登录失败"
             for (attempt in 1..MaxOcrAttempts) {
-                when (val outcome = autoLoginAttempt(store.username, store.password)) {
+                when (val outcome = autoLoginAttempt(store.username, store.password, store)) {
                     is AttemptOutcome.LoggedIn -> { loggedIn = true; break }
                     is AttemptOutcome.CaptchaError -> {
                         sawCaptchaError = true
@@ -106,6 +143,7 @@ class SpecialSyncCoordinator(private val context: Context) {
                         return@withContext SyncResult.Failure(outcome.message)
                     }
                 }
+                if (attempt < MaxOcrAttempts) delay(OcrRetryDelayMillis)
             }
             if (!loggedIn) {
                 return@withContext if (sawCaptchaError) {
@@ -161,10 +199,10 @@ class SpecialSyncCoordinator(private val context: Context) {
         data class HardError(val message: String) : AttemptOutcome()
     }
 
-    private suspend fun autoLoginAttempt(username: String, password: String): AttemptOutcome {
+    private suspend fun autoLoginAttempt(username: String, password: String, config: SpecialSyncConfig): AttemptOutcome {
         return try {
             val img = api.getCaptcha()
-            val code = SpecialSyncCaptchaOcr.recognize(img)
+            val code = SpecialSyncCaptchaOcr.recognize(img, config)
             if (code.isEmpty()) return AttemptOutcome.CaptchaError("验证码识别为空")
             val outcome = attemptLogin(username, password, code)
             when {

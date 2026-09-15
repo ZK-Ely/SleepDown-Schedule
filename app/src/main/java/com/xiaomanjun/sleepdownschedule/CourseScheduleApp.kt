@@ -28,6 +28,7 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreService
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentRepository
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceRepository
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncAutoRefresher
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**
@@ -72,6 +73,7 @@ class CourseScheduleApp : Application() {
         applicationScope.launch(Dispatchers.IO) {
             cleanupPersistedAppData()
         }
+        SpecialSyncAutoRefresher.start(this)
         applicationScope.launch(Dispatchers.IO) {
             for (ignored in globalSettingsSaveSignal) {
                 while (true) {

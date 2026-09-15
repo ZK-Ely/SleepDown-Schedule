@@ -4,11 +4,17 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.app.ui.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassMiuixEnabled
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncCoordinator
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncOcrMode
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncStore
 import com.xiaomanjun.sleepdownschedule.model.AppState
+import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.kyant.shapes.RoundedRectangle
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
@@ -21,17 +27,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -75,25 +80,57 @@ fun SpecialSyncSettingsScreen(
     var busy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var statusIsError by remember { mutableStateOf(false) }
-    var showCaptchaInput by remember { mutableStateOf(false) }
-    var captchaBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var captchaText by remember { mutableStateOf("") }
+    // 手动验证码弹窗：OCR 三次失败后弹出；bytes 为 null 表示正在拉取新图
+    var captchaDialogBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var captchaDialogVisible by remember { mutableStateOf(false) }
 
     fun update(transform: (SpecialSyncConfig) -> SpecialSyncConfig) {
         config = transform(config)
         SpecialSyncStore.save(context, config)
     }
 
-    fun refreshCaptchaImage() {
+    fun refreshCaptchaAndShowDialog() {
         scope.launch {
             try {
-                captchaBytes = coordinator.fetchCaptcha()
-                captchaText = ""
-                showCaptchaInput = true
+                captchaDialogBytes = coordinator.fetchCaptcha()
             } catch (error: Throwable) {
                 statusIsError = true
                 statusMessage = "验证码获取失败：${error.message ?: "网络错误"}"
             }
+            captchaDialogVisible = true
+        }
+    }
+
+    fun sync(manualCaptchaText: String = "") {
+        if (busy) return
+        if (config.username.isBlank() || config.password.isBlank()) {
+            statusIsError = true
+            statusMessage = "请先填写账号和密码"
+            return
+        }
+        scope.launch {
+            busy = true
+            statusMessage = null
+            statusIsError = false
+            val result = coordinator.sync(manualCaptchaText)
+            when (result) {
+                is SpecialSyncCoordinator.SyncResult.Success -> {
+                    statusIsError = false
+                    statusMessage = "同步完成：${result.summary}"
+                    captchaDialogVisible = false
+                }
+                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha -> {
+                    statusIsError = true
+                    statusMessage = result.message
+                    refreshCaptchaAndShowDialog()
+                }
+                is SpecialSyncCoordinator.SyncResult.Failure -> {
+                    statusIsError = true
+                    statusMessage = result.message
+                }
+            }
+            config = SpecialSyncStore.load(context)
+            busy = false
         }
     }
 
@@ -120,36 +157,15 @@ fun SpecialSyncSettingsScreen(
         }
     }
 
-    fun sync() {
+    fun testOcrConnectivity() {
         if (busy) return
-        if (config.username.isBlank() || config.password.isBlank()) {
-            statusIsError = true
-            statusMessage = "请先填写账号和密码"
-            return
-        }
         scope.launch {
             busy = true
             statusMessage = null
             statusIsError = false
-            val result = coordinator.sync(captchaText)
-            when (result) {
-                is SpecialSyncCoordinator.SyncResult.Success -> {
-                    statusIsError = false
-                    statusMessage = "同步完成：${result.summary}"
-                    showCaptchaInput = false
-                    captchaText = ""
-                }
-                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha -> {
-                    statusIsError = true
-                    statusMessage = result.message
-                    refreshCaptchaImage()
-                }
-                is SpecialSyncCoordinator.SyncResult.Failure -> {
-                    statusIsError = true
-                    statusMessage = result.message
-                }
-            }
-            config = SpecialSyncStore.load(context)
+            val result = coordinator.testOcrConnectivity()
+            statusIsError = !result.startsWith("连通正常")
+            statusMessage = "OCR 测试：$result"
             busy = false
         }
     }
@@ -236,16 +252,158 @@ fun SpecialSyncSettingsScreen(
                     }
                 }
             }
-            if (showCaptchaInput) {
-                item(key = "special-sync-captcha") {
-                    GlassPreferenceSection("图形验证码") {
-                        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                            SpecialSyncCaptchaRow(
-                                captchaBytes = captchaBytes,
-                                code = captchaText,
-                                busy = busy,
-                                onCodeChange = { captchaText = it },
-                                onRefresh = { if (!busy) refreshCaptchaImage() }
+            item(key = "special-sync-auto") {
+                GlassPreferenceSection("自动刷新") {
+                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                        SettingsToggleRow(
+                            title = "自动刷新",
+                            subtitle = "应用前台运行时，超过设定间隔自动从教务同步",
+                            checked = config.autoRefreshEnabled,
+                            backdrop = backdrop,
+                            enabled = !busy,
+                            onCheckedChange = { value ->
+                                update { it.copy(autoRefreshEnabled = value) }
+                            }
+                        )
+                        if (config.autoRefreshEnabled) {
+                            SettingsDivider()
+                            SettingsTextFieldRow(
+                                title = "刷新间隔（分钟）",
+                                value = config.autoRefreshIntervalMinutes.toString(),
+                                onValueChange = { value ->
+                                    val minutes = value.filter { it.isDigit() }.take(4)
+                                        .toIntOrNull()?.coerceIn(5, 1440) ?: 5
+                                    update { it.copy(autoRefreshIntervalMinutes = minutes) }
+                                },
+                                keyboardType = KeyboardType.Number,
+                                enabled = !busy,
+                                placeholder = "60"
+                            )
+                            config.forbiddenRanges.forEachIndexed { index, raw ->
+                                val parts = raw.split("-")
+                                val start = parts.getOrNull(0)?.trim()?.ifBlank { "11:00" } ?: "11:00"
+                                val end = parts.getOrNull(1)?.trim()?.ifBlank { "14:00" } ?: "14:00"
+                                SettingsDivider()
+                                SettingsTextFieldRow(
+                                    title = "禁止时段${index + 1} · 开始",
+                                    value = start,
+                                    onValueChange = { value ->
+                                        update { withRangeAt(config, index, value, end) }
+                                    },
+                                    enabled = !busy
+                                )
+                                SettingsTextFieldRow(
+                                    title = "禁止时段${index + 1} · 结束",
+                                    value = end,
+                                    onValueChange = { value ->
+                                        update { withRangeAt(config, index, start, value) }
+                                    },
+                                    enabled = !busy
+                                )
+                                SettingsActionRow(
+                                    title = "删除禁止时段${index + 1}",
+                                    subtitle = "移除后该时段内也会正常自动刷新",
+                                    buttonText = "删除",
+                                    iconRes = R.drawable.ic_trash,
+                                    backdrop = backdrop,
+                                    destructive = true,
+                                    onClick = {
+                                        update {
+                                            it.copy(
+                                                forbiddenRanges =
+                                                it.forbiddenRanges.toMutableList().apply {
+                                                    if (index < size) removeAt(index)
+                                                }
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                            SettingsDivider()
+                            SettingsActionRow(
+                                title = "添加禁止时间段",
+                                subtitle = "在设定的时段内不会执行自动刷新（支持跨零点）",
+                                buttonText = "添加",
+                                iconRes = R.drawable.ic_add_course,
+                                backdrop = backdrop,
+                                onClick = {
+                                    update {
+                                        it.copy(
+                                            forbiddenRanges = it.forbiddenRanges + listOf("11:00-14:00")
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            item(key = "special-sync-ocr") {
+                GlassPreferenceSection("验证码识别") {
+                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                        SleepDownLiquidDropdownPreference(
+                            items = listOf("本地识别（离线）", "OpenAI 兼容接口"),
+                            selectedIndex = if (config.ocrMode == SpecialSyncOcrMode.OPENAI) 1 else 0,
+                            title = "识别方式",
+                            summary = "本地识别使用内置模型；接口识别调用兼容 OpenAI 的视觉模型",
+                            backdrop = backdrop,
+                            config = state.config,
+                            modifier = Modifier.fillMaxWidth(),
+                            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                            maxHeight = 240.dp,
+                            onExpandedChange = {},
+                            onSelectedIndexChange = { index ->
+                                update {
+                                    it.copy(
+                                        ocrMode = if (index == 1) {
+                                            SpecialSyncOcrMode.OPENAI
+                                        } else {
+                                            SpecialSyncOcrMode.LOCAL
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                        if (config.ocrMode == SpecialSyncOcrMode.OPENAI) {
+                            SettingsDivider()
+                            SettingsTextFieldRow(
+                                title = "请求地址",
+                                value = config.ocrApiBaseUrl,
+                                onValueChange = { value ->
+                                    update { it.copy(ocrApiBaseUrl = value.trim()) }
+                                },
+                                enabled = !busy,
+                                placeholder = SpecialSyncOcrMode.DefaultOpenAiBaseUrl
+                            )
+                            SettingsDivider()
+                            SettingsTextFieldRow(
+                                title = "模型名称",
+                                value = config.ocrModelName,
+                                onValueChange = { value ->
+                                    update { it.copy(ocrModelName = value.trim()) }
+                                },
+                                enabled = !busy,
+                                placeholder = SpecialSyncOcrMode.DefaultOcrModel
+                            )
+                            SettingsDivider()
+                            SettingsTextFieldRow(
+                                title = "API Key",
+                                value = config.ocrApiKey,
+                                onValueChange = { value ->
+                                    update { it.copy(ocrApiKey = value.trim()) }
+                                },
+                                keyboardType = KeyboardType.Password,
+                                enabled = !busy,
+                                placeholder = "sk-…"
+                            )
+                            SettingsDivider()
+                            SettingsActionRow(
+                                title = "测试连通性",
+                                subtitle = "拉取一张验证码并调用识别接口验证配置",
+                                buttonText = "测试",
+                                iconRes = R.drawable.ic_check,
+                                backdrop = backdrop,
+                                onClick = { testOcrConnectivity() }
                             )
                         }
                     }
@@ -260,7 +418,7 @@ fun SpecialSyncSettingsScreen(
                             buttonText = "同步",
                             iconRes = R.drawable.ic_refresh,
                             backdrop = backdrop,
-                            onClick = ::sync
+                            onClick = { sync() }
                         )
                     }
                 }
@@ -296,120 +454,141 @@ fun SpecialSyncSettingsScreen(
             }
         }
     }
+
+    if (captchaDialogVisible) {
+        SpecialSyncCaptchaDialog(
+            captchaBytes = captchaDialogBytes,
+            busy = busy,
+            backdrop = backdrop,
+            config = state.config,
+            onRefresh = { if (!busy) refreshCaptchaAndShowDialog() },
+            onSubmit = { code ->
+                captchaDialogVisible = false
+                sync(manualCaptchaText = code)
+            },
+            onDismiss = { captchaDialogVisible = false }
+        )
+    }
+}
+
+private fun withRangeAt(
+    config: SpecialSyncConfig,
+    index: Int,
+    start: String,
+    end: String
+): SpecialSyncConfig {
+    val startText = normalizeHm(start) ?: start
+    val endText = normalizeHm(end) ?: end
+    val newRanges = config.forbiddenRanges.toMutableList().apply {
+        if (index < size) this[index] = "$startText-$endText" else add("$startText-$endText")
+    }
+    return config.copy(forbiddenRanges = newRanges)
+}
+
+private fun normalizeHm(value: String): String? {
+    val match = Regex("(\\d{1,2}):(\\d{2})").find(value.trim()) ?: return null
+    val hour = match.groupValues[1].toInt()
+    val minute = match.groupValues[2].toInt()
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return "%02d:%02d".format(hour, minute)
+}
+
+/**
+ * 手动验证码弹窗：OCR 三次失败后弹出。图片可点击换一张，输入后提交触发重试同步。
+ */
+@Composable
+fun SpecialSyncCaptchaDialog(
+    captchaBytes: ByteArray?,
+    busy: Boolean,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onRefresh: () -> Unit,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var code by remember(captchaBytes) { mutableStateOf("") }
+    LiquidAlertDialog(
+        title = "输入图形验证码",
+        message = "验证码自动识别未通过，请输入图片中的文字后重试。",
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onDismiss),
+            LiquidAlertAction("提交并重试", LiquidAlertActionStyle.Primary) {
+                if (code.isNotBlank()) onSubmit(code)
+            }
+        ),
+        backdrop = backdrop,
+        config = config,
+        onDismissRequest = onDismiss,
+        messageContent = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SpecialSyncCaptchaImage(
+                    bytes = captchaBytes,
+                    busy = busy,
+                    onRefresh = onRefresh
+                )
+                BasicTextField(
+                    value = code,
+                    onValueChange = { value ->
+                        code = value.filter { it.isLetterOrDigit() }.take(6)
+                    },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    ),
+                    modifier = Modifier
+                        .widthIn(min = 132.dp)
+                        .clip(RoundedRectangle(10.dp))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun SpecialSyncCaptchaImage(
+    bytes: ByteArray?,
+    busy: Boolean,
+    onRefresh: () -> Unit
+) {
+    val bitmap = remember(bytes) {
+        bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+    }
+    Box(
+        modifier = Modifier
+            .size(width = 116.dp, height = 44.dp)
+            .clip(RoundedRectangle(10.dp))
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                RoundedRectangle(10.dp)
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .clickable(enabled = !busy, onClick = onRefresh),
+        contentAlignment = Alignment.Center
+    ) {
+        val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = "图形验证码",
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        }
+    }
 }
 
 private const val SpecialSyncApiBaseUrlPlaceholder = "https://…"
-
-@Composable
-private fun SpecialSyncCaptchaRow(
-    captchaBytes: ByteArray?,
-    code: String,
-    busy: Boolean,
-    onCodeChange: (String) -> Unit,
-    onRefresh: () -> Unit
-) {
-    val bitmap = remember(captchaBytes) {
-        captchaBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-    }
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
-            title = "图形验证码",
-            summary = "点击图片可换一张",
-            modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            endActions = {
-                SpecialSyncCaptchaContent(bitmap, code, busy, onCodeChange, onRefresh)
-            }
-        )
-        return
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 76.dp)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text("图形验证码", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "点击图片可换一张",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        SpecialSyncCaptchaContent(bitmap, code, busy, onCodeChange, onRefresh)
-    }
-}
-
-@Composable
-private fun SpecialSyncCaptchaContent(
-    bitmap: android.graphics.Bitmap?,
-    code: String,
-    busy: Boolean,
-    onCodeChange: (String) -> Unit,
-    onRefresh: () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(width = 104.dp, height = 40.dp)
-                .clip(RoundedRectangle(10.dp))
-                .border(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                    RoundedRectangle(10.dp)
-                )
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                .clickable(enabled = !busy, onClick = onRefresh),
-            contentAlignment = Alignment.Center
-        ) {
-            val imageBitmap = remember(bitmap) { bitmap?.asImageBitmap() }
-            if (imageBitmap != null) {
-                Image(
-                    bitmap = imageBitmap,
-                    contentDescription = "图形验证码",
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            }
-        }
-        BasicTextField(
-            value = code,
-            onValueChange = { value ->
-                // 只允许字母数字，最长 6 位（与验证码生成规则一致）
-                onCodeChange(value.filter { it.isLetterOrDigit() }.take(6))
-            },
-            singleLine = true,
-            enabled = !busy,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            ),
-            modifier = Modifier
-                .widthIn(min = 56.dp)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
-                .padding(horizontal = 8.dp, vertical = 8.dp)
-        )
-        Icon(
-            painter = painterResource(R.drawable.ic_refresh),
-            contentDescription = "刷新验证码",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(22.dp)
-                .clickable(enabled = !busy, onClick = onRefresh)
-        )
-    }
-}
 
 private fun formatSyncTime(millis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))

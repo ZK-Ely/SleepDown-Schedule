@@ -27,6 +27,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncAutoRefresher
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncCoordinator
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
@@ -712,11 +713,17 @@ fun CourseScheduleAppUi(
     }
     val specialSyncScope = rememberCoroutineScope()
     val specialSyncLifecycleOwner = LocalLifecycleOwner.current
-    // 设置页在独立 Activity 中修改开关，回到首页时以 ON_RESUME 为信号重读偏好
+    // 设置页在独立 Activity 中修改开关，回到首页时以 ON_RESUME 为信号重读偏好，
+    // 并顺带补一次自动刷新检查（超间隔且不在禁止时段才会真正同步）
     var specialSyncPrefsVersion by remember { mutableIntStateOf(0) }
     DisposableEffect(specialSyncLifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) specialSyncPrefsVersion++
+            if (event == Lifecycle.Event.ON_RESUME) {
+                specialSyncPrefsVersion++
+                specialSyncScope.launch {
+                    runCatching { SpecialSyncAutoRefresher.tick(appContextForSpecialSync) }
+                }
+            }
         }
         specialSyncLifecycleOwner.lifecycle.addObserver(observer)
         onDispose { specialSyncLifecycleOwner.lifecycle.removeObserver(observer) }
@@ -725,15 +732,31 @@ fun CourseScheduleAppUi(
         mutableStateOf(SpecialSyncStore.load(appContextForSpecialSync))
     }
     val specialSyncRefreshingState = remember { mutableStateOf(false) }
-    fun runSpecialSync() {
+    // 手动验证码弹窗状态：自动识别三次失败后拉新图弹窗
+    var specialSyncCaptchaVisible by remember { mutableStateOf(false) }
+    var specialSyncCaptchaBytes by remember { mutableStateOf<ByteArray?>(null) }
+    fun showSpecialSyncCaptchaDialog() {
+        specialSyncScope.launch {
+            specialSyncCaptchaBytes = runCatching { specialSyncCoordinator.fetchCaptcha() }.getOrNull()
+            specialSyncCaptchaVisible = true
+        }
+    }
+    fun runSpecialSync(manualCaptchaText: String = "") {
         if (specialSyncRefreshingState.value) return
         specialSyncRefreshingState.value = true
         specialSyncScope.launch {
-            val result = specialSyncCoordinator.sync()
+            val result = specialSyncCoordinator.sync(manualCaptchaText)
+            when (result) {
+                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha -> {
+                    specialSyncRefreshingState.value = false
+                    showSpecialSyncCaptchaDialog()
+                    return@launch
+                }
+                else -> Unit
+            }
             val text = when (result) {
                 is SpecialSyncCoordinator.SyncResult.Success -> "特殊同步完成：${result.summary}"
-                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha ->
-                    "${result.message} 可到 设置 > 特殊同步方式 中手动输入验证码。"
+                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha -> result.message
                 is SpecialSyncCoordinator.SyncResult.Failure -> result.message
             }
             Toast.makeText(
@@ -3940,6 +3963,21 @@ fun CourseScheduleAppUi(
             onPhaseChange = {}
         )
 
+    }
+
+    if (specialSyncCaptchaVisible) {
+        SpecialSyncCaptchaDialog(
+            captchaBytes = specialSyncCaptchaBytes,
+            busy = specialSyncRefreshingState.value,
+            backdrop = chromeBackdrop,
+            config = state.config,
+            onRefresh = { showSpecialSyncCaptchaDialog() },
+            onSubmit = { code ->
+                specialSyncCaptchaVisible = false
+                runSpecialSync(manualCaptchaText = code)
+            },
+            onDismiss = { specialSyncCaptchaVisible = false }
+        )
     }
 
     if (showManagedFreeAiOffer) {
