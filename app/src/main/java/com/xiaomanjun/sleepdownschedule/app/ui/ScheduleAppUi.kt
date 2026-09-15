@@ -27,6 +27,8 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncCoordinator
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.uninstallShiguangRuntime
 
@@ -200,6 +202,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -437,7 +440,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, Notifications, ScheduleManager, SpecialSync, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -500,6 +503,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
+    SettingsPage.SpecialSync -> "特殊同步方式"
     SettingsPage.BackupRestore -> "备份与恢复"
     SettingsPage.BackupPreview -> "恢复预览"
     SettingsPage.About -> "关于应用"
@@ -701,6 +705,47 @@ fun CourseScheduleAppUi(
     val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
     val message by viewModel.snackbar.collectAsStateWithLifecycle()
     val pickerState = rememberSchedulePickerState()
+    // ---- 特殊同步方式：首页刷新入口状态 ----
+    val appContextForSpecialSync = LocalContext.current
+    val specialSyncCoordinator = remember(appContextForSpecialSync) {
+        SpecialSyncCoordinator(appContextForSpecialSync)
+    }
+    val specialSyncScope = rememberCoroutineScope()
+    val specialSyncLifecycleOwner = LocalLifecycleOwner.current
+    // 设置页在独立 Activity 中修改开关，回到首页时以 ON_RESUME 为信号重读偏好
+    var specialSyncPrefsVersion by remember { mutableIntStateOf(0) }
+    DisposableEffect(specialSyncLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) specialSyncPrefsVersion++
+        }
+        specialSyncLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { specialSyncLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val specialSyncPrefs by remember(specialSyncPrefsVersion) {
+        mutableStateOf(SpecialSyncStore.load(appContextForSpecialSync))
+    }
+    val specialSyncRefreshingState = remember { mutableStateOf(false) }
+    fun runSpecialSync() {
+        if (specialSyncRefreshingState.value) return
+        specialSyncRefreshingState.value = true
+        specialSyncScope.launch {
+            val result = specialSyncCoordinator.sync()
+            val text = when (result) {
+                is SpecialSyncCoordinator.SyncResult.Success -> "特殊同步完成：${result.summary}"
+                is SpecialSyncCoordinator.SyncResult.NeedManualCaptcha ->
+                    "${result.message} 可到 设置 > 特殊同步方式 中手动输入验证码。"
+                is SpecialSyncCoordinator.SyncResult.Failure -> result.message
+            }
+            Toast.makeText(
+                appContextForSpecialSync,
+                text,
+                if (result is SpecialSyncCoordinator.SyncResult.Success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+            ).show()
+            specialSyncRefreshingState.value = false
+            specialSyncPrefsVersion++
+        }
+    }
+    // ---- 特殊同步结束 ----
     var previewScheduleId by remember { mutableStateOf<Int?>(null) }
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
@@ -739,6 +784,16 @@ fun CourseScheduleAppUi(
         ?.takeIf { it.id == baseVisualState.config.id }
         ?.let { baseVisualState.copy(config = it) }
         ?: baseVisualState
+    // 特殊同步课表：启用中、存在已记录的课表 ID，且当前正在显示该课表
+    val specialSyncActive = specialSyncPrefs.enabled &&
+        specialSyncPrefs.scheduleId > 0 &&
+        specialSyncPrefs.scheduleId == visualState.config.id
+    // 隐藏无教室课程：仅对特殊同步课表生效的显示层过滤（数据仍保留在课表中）
+    val homeDisplayState = if (specialSyncActive && specialSyncPrefs.hideNoRoom) {
+        visualState.copy(courses = visualState.courses.filter { !it.location.isNullOrBlank() })
+    } else {
+        visualState
+    }
     val glassBackendPolicy = remember { GlassBackendPolicy.LargeGlass }
     val glassSceneState = rememberGlassSceneState(
         sceneId = "home",
@@ -2632,7 +2687,7 @@ fun CourseScheduleAppUi(
                     ) {
                         AppTopBar(
                             screen = screen,
-                            state = if (screen is Screen.Home) visualState else state,
+                            state = if (screen is Screen.Home) homeDisplayState else state,
                             settingsPage = SettingsPage.Root,
                             backdrop = chromeBackdrop,
                             homeMode = homeMode,
@@ -2653,7 +2708,10 @@ fun CourseScheduleAppUi(
                             onTogglePersonalize = { sourceScale ->
                                 toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize, sourceScale)
                             },
-                            onBackHome = { screen = Screen.Home }
+                            onBackHome = { screen = Screen.Home },
+                            specialSyncActive = specialSyncActive,
+                            specialSyncRefreshing = specialSyncRefreshingState.value,
+                            onSpecialSyncRefresh = { runSpecialSync() }
                         )
                     }
                     if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
@@ -2662,8 +2720,8 @@ fun CourseScheduleAppUi(
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
                         BoundlessWeekdayHeaderRow(
                             displayWeek = homeDisplayWeek,
-                            courses = visualState.courses,
-                            config = visualState.config,
+                            courses = homeDisplayState.courses,
+                            config = homeDisplayState.config,
                             today = todayDate,
                             textColor = homeForegroundColor(visualState.config),
                             backdrop = chromeBackdrop,
@@ -2766,7 +2824,7 @@ fun CourseScheduleAppUi(
                         when (screen) {
                             Screen.Home -> {
                                  HomeScreen(
-                                     state = visualState,
+                                     state = homeDisplayState,
                                      agentState = state,
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
@@ -4835,7 +4893,10 @@ internal fun AppTopBar(
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onToggleAddMenu: (Float) -> Unit,
     onTogglePersonalize: (Float) -> Unit,
-    onBackHome: () -> Unit
+    onBackHome: () -> Unit,
+    specialSyncActive: Boolean = false,
+    specialSyncRefreshing: Boolean = false,
+    onSpecialSyncRefresh: () -> Unit = {}
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
     val homeTextColor = adaptiveTopBarColor
@@ -4886,6 +4947,32 @@ internal fun AppTopBar(
                     .graphicsLayer { clip = false },
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (specialSyncActive) {
+                    // 特殊同步课表的刷新入口（日视图与无边距周视图共用顶栏位置）
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 7.dp)
+                            .size(42.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        HomeIconButton(
+                            backdrop = backdrop,
+                            config = state.config,
+                            iconRes = R.drawable.ic_refresh,
+                            contentDescription = "同步特殊课表",
+                            selected = false,
+                            visible = !specialSyncRefreshing,
+                            onClick = { onSpecialSyncRefresh() }
+                        )
+                        if (specialSyncRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = homeTextColor
+                            )
+                        }
+                    }
+                }
                 HomeIconButton(
                     backdrop = backdrop,
                     config = state.config,
@@ -4937,6 +5024,7 @@ internal fun AppTopBar(
                         SettingsPage.Schedule -> "课表详细设置"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
+                        SettingsPage.SpecialSync -> "特殊同步方式"
                         SettingsPage.BackupRestore -> "备份与恢复"
                         SettingsPage.BackupPreview -> "恢复预览"
                         SettingsPage.About -> "关于应用"
@@ -7275,6 +7363,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             onDeleteSchedule = { viewModel.deleteSchedule(it) }
                         )
                         SettingsPage.Root -> SettingsRootScreen(state, backdrop) {}
+                        SettingsPage.SpecialSync -> SpecialSyncSettingsScreen(
+                            state = state,
+                            backdrop = backdrop
+                        )
                     }
                 }
                 }
@@ -8129,6 +8221,10 @@ private fun SettingsPageContent(
         )
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)
+        SettingsPage.SpecialSync -> SpecialSyncSettingsScreen(
+            state = pageState,
+            backdrop = backdrop
+        )
     }
 }
 
@@ -8341,6 +8437,13 @@ fun SettingsRootScreen(
         item {
             GlassPreferenceSection("其他") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow(
+                        "特殊同步方式",
+                        "用教务账号密码同步独立课表",
+                        selected = selectedPage == SettingsPage.SpecialSync,
+                        onClick = { onPageChange(SettingsPage.SpecialSync) }
+                    )
+                    SettingsDivider()
                     SettingsNavigationRow(
                         "备份与恢复",
                         "保存课表和设置，或从备份恢复",

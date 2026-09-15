@@ -76,6 +76,15 @@ android {
         )
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     sourceSets {
         getByName("androidTest").assets.directories.add("$projectDir/schemas")
     }
@@ -212,6 +221,8 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    // Special sync: bundled on-device OCR for the education-system login captcha.
+    implementation("com.google.mlkit:text-recognition:16.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.6.1")
