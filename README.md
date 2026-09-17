@@ -1,11 +1,19 @@
 # SleepDown 课程表
+> [!NOTE]
+> 关于本分支：这是一个修改版（applicationId `com.xiaomanjun.sleepdownschedule.zk`），在原项目基础上针对gzucm使用的教务系统加入课表自动更新功能。相关功能的开发与调试均由 GLM-5.3 Flash 完成，开发者不对相关代码进行任何担保，相关代码仅供学习交流。
 
-> 项目交流群：1108032519
+> 本分支额外使用的开源项目及其许可证
+- [sml2h3/ddddocr](https://github.com/sml2h3/ddddocr)：本地验证码识别所使用的 OCR 模型与字符集来源，许可证以其仓库为准。
+- [86maid/ddddocr](https://github.com/86maid/ddddocr)：ddddocr 的 Rust 实现，推理流程参考，Apache-2.0。
+- [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)：OCR 模型推理引擎（Android 版），MIT。
+- Google ML Kit（text-recognition）：本地识别引擎，遵循 ML Kit Terms of Service。
 
 > 一款基于 Jetpack Compose 与 Miuix 构建，融合液态玻璃视觉效果和 AI 能力的 Android 课程表。
 
 > [!IMPORTANT]
 > 本仓库是**源码可见项目，并非 OSI 定义的开源项目**。允许个人、非商业地克隆、编译和修改；对外提供任何修改版项目、源码、APK/AAB、应用或服务时，必须至少同步公开可查看/下载的对应源代码，并在发布页面和 App 内显著注明原作者 `xiaomanjun233`、原项目链接及“非官方修改版”，不得冒充原创或官方版本。仅发布二进制、反编译代码、私有/付费/受邀源码或不完整补丁均不符合要求。完整条款见 [SleepDown 署名非商业、源码可见许可 1.1](LICENSE.md)。
+
+
 
 SleepDown 围绕课表的导入、维护、提醒与日常查看进行设计，并提供桌面组件、今日助手和较完整的个性化能力。无需注册账号，课表、设置、壁纸与助手数据默认存储在设备本地。
 
@@ -175,6 +183,7 @@ CourseSchedule/
 - [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)：液态玻璃目录组件基础，Apache-2.0。
 - [compose-miuix-ui/miuix](https://github.com/compose-miuix-ui/miuix)：设置和教务导入页面组件，Apache-2.0。
 - [xingheyuzhuan/shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse)：教务系统适配资源，MIT。
+
 - AndroidX、Jetpack Compose、Kotlin Serialization 等依赖遵循各自许可证。
 
 本项目对第三方代码的引用和修改范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

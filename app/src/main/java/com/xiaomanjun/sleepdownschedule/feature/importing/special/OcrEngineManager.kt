@@ -49,9 +49,9 @@ internal object OcrEngineManager {
 
     private const val TAG = "OcrEngine"
 
-    /** 资产托管仓库（GitHub raw 直链）；文件放在仓库 ocr/ 目录，文件名固定 */
+    /** 资产托管仓库（GitHub raw 直链）；文件放在仓库 ocr-assets/release/ 目录，文件名固定 */
     private const val ReleaseBaseUrl =
-        "https://github.com/ZK-Ely/SleepDown-Schedule/raw/main/ocr"
+        "https://github.com/ZK-Ely/SleepDown-Schedule/raw/main/ocr-assets/release"
 
     /** 引擎资产版本：托管内容更新时递增，客户端会自动重新下载引擎 */
     private const val EngineVersion = "1.0.0"
