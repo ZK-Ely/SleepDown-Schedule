@@ -1,0 +1,324 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Type-safe project accessors is an incubating feature.
+
+> Configure project :app
+WARNING: The option setting 'android.overridePathCheck=true' is experimental.
+The current default is 'false'.
+
+> Task :miuix-reference:build-plugins:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:build-plugins:generateExternalPluginSpecBuilders UP-TO-DATE
+> Task :miuix-reference:build-plugins:extractPrecompiledScriptPluginPlugins UP-TO-DATE
+> Task :miuix-reference:build-plugins:compilePluginsBlocks UP-TO-DATE
+> Task :miuix-reference:build-plugins:generatePrecompiledScriptPluginAccessors UP-TO-DATE
+> Task :miuix-reference:build-plugins:generateScriptPluginAdapters UP-TO-DATE
+> Task :miuix-reference:build-plugins:compileKotlin UP-TO-DATE
+> Task :miuix-reference:build-plugins:compileJava NO-SOURCE
+> Task :miuix-reference:build-plugins:pluginDescriptors UP-TO-DATE
+> Task :miuix-reference:build-plugins:processResources UP-TO-DATE
+> Task :miuix-reference:build-plugins:classes UP-TO-DATE
+> Task :miuix-reference:build-plugins:jar UP-TO-DATE
+
+> Configure project :miuix-reference:baselineprofile
+WARNING: The option setting 'android.r8.gradual.support=true' is experimental.
+The current default is 'false'.
+WARNING: The option setting 'android.r8.maxWorkers=4' is experimental.
+The current default is '1'.
+
+> Configure project :miuix-reference:miuix-blur
+w: [33m[1mDeprecated Gradle Property 'kotlin.mpp.androidSourceSetLayoutVersion' Used[0m[0m
+The `kotlin.mpp.androidSourceSetLayoutVersion` deprecated property is used in your build.
+[32m[1mSolutions:[0m[0m
+[32m * [3mIt is unsupported, please stop using it.[0m[0m
+[32m * [3mAndroid Source Set Layout V2 is enabled by default and can't be changed. Leave your questions here https://youtrack.jetbrains.com/issue/KT-82265[0m[0m
+
+
+> Task :miuix-reference:miuix-core:androidPreBuild UP-TO-DATE
+> Task :miuix-reference:miuix-core:preAndroidMainBuild UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preGithubReleaseBuild UP-TO-DATE
+> Task :miuix-reference:miuix-core:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :miuix-reference:miuix-core:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-core:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :miuix-reference:miuix-shader:androidPreBuild UP-TO-DATE
+> Task :miuix-reference:miuix-shader:preAndroidMainBuild UP-TO-DATE
+> Task :miuix-reference:miuix-shader:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :app:mergeGithubReleaseJniLibFolders UP-TO-DATE
+> Task :kyant-backdrop:androidPreBuild UP-TO-DATE
+> Task :kyant-backdrop:preAndroidMainBuild UP-TO-DATE
+> Task :miuix-reference:miuix-shader:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-shader:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :kyant-backdrop:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :miuix-reference:miuix-ui:androidPreBuild UP-TO-DATE
+> Task :miuix-reference:miuix-ui:preAndroidMainBuild UP-TO-DATE
+> Task :kyant-backdrop:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-ui:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :kyant-backdrop:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :miuix-reference:miuix-ui:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-ui:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :miuix-reference:miuix-preference:androidPreBuild UP-TO-DATE
+> Task :miuix-reference:miuix-preference:preAndroidMainBuild UP-TO-DATE
+> Task :miuix-reference:miuix-preference:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :miuix-reference:miuix-preference:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-preference:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :kyant-backdrop:kmpPartiallyResolvedDependenciesChecker
+> Task :kyant-backdrop:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-squircle:androidPreBuild UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:preAndroidMainBuild UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:mergeAndroidMainJniLibFolders UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:mergeAndroidMainNativeLibs NO-SOURCE
+> Task :miuix-reference:miuix-squircle:copyAndroidMainJniLibsProjectOnly UP-TO-DATE
+> Task :kyant-backdrop:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-core:kmpPartiallyResolvedDependenciesChecker
+> Task :miuix-reference:miuix-core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-core:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-core:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-core:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-core:generateResourceAccessorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-core:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-core:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-core:prepareComposeResourcesTaskForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-core:generateResourceAccessorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-core:generateActualResourceCollectorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-core:generateComposeResClass SKIPPED
+> Task :miuix-reference:miuix-core:generateExpectResourceCollectorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-core:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-core:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :miuix-reference:miuix-preference:kmpPartiallyResolvedDependenciesChecker
+> Task :miuix-reference:miuix-preference:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-preference:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:generateResourceAccessorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-preference:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:prepareComposeResourcesTaskForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-preference:generateResourceAccessorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-preference:generateActualResourceCollectorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-preference:generateComposeResClass SKIPPED
+> Task :miuix-reference:miuix-preference:generateExpectResourceCollectorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-shader:kmpPartiallyResolvedDependenciesChecker
+> Task :miuix-reference:miuix-shader:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-shader:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:generateResourceAccessorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-shader:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:prepareComposeResourcesTaskForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-shader:generateResourceAccessorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-shader:generateActualResourceCollectorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-shader:generateComposeResClass SKIPPED
+> Task :miuix-reference:miuix-shader:generateExpectResourceCollectorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-shader:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-shader:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:bakeSquircleSdf UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:kmpPartiallyResolvedDependenciesChecker
+> Task :miuix-reference:miuix-squircle:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-squircle:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:generateResourceAccessorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-squircle:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:prepareComposeResourcesTaskForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-squircle:generateResourceAccessorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-squircle:generateActualResourceCollectorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-squircle:generateComposeResClass SKIPPED
+> Task :miuix-reference:miuix-squircle:generateExpectResourceCollectorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-squircle:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :miuix-reference:miuix-ui:kmpPartiallyResolvedDependenciesChecker
+> Task :miuix-reference:miuix-ui:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :miuix-reference:miuix-ui:convertXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:copyNonXmlValueResourcesForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:prepareComposeResourcesTaskForAndroidMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:generateResourceAccessorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-ui:convertXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:copyNonXmlValueResourcesForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:prepareComposeResourcesTaskForCommonMain NO-SOURCE
+> Task :miuix-reference:miuix-ui:generateResourceAccessorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-ui:generateActualResourceCollectorsForAndroidMain SKIPPED
+> Task :miuix-reference:miuix-ui:generateComposeResClass SKIPPED
+> Task :miuix-reference:miuix-ui:generateExpectResourceCollectorsForCommonMain SKIPPED
+> Task :miuix-reference:miuix-ui:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-ui:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :miuix-reference:miuix-preference:compileAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-preference:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :miuix-reference:miuix-preference:processAndroidMainJavaRes UP-TO-DATE
+> Task :miuix-reference:miuix-preference:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-ui:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :miuix-reference:miuix-ui:processAndroidMainJavaRes UP-TO-DATE
+> Task :miuix-reference:miuix-ui:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-core:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :miuix-reference:miuix-core:processAndroidMainJavaRes UP-TO-DATE
+> Task :miuix-reference:miuix-core:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:processAndroidMainJavaRes UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-shader:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :miuix-reference:miuix-shader:processAndroidMainJavaRes UP-TO-DATE
+> Task :miuix-reference:miuix-shader:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-core:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :miuix-reference:miuix-shader:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :miuix-reference:miuix-preference:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :miuix-reference:miuix-ui:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :miuix-reference:miuix-preference:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :miuix-reference:miuix-ui:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :miuix-reference:miuix-core:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :miuix-reference:miuix-shader:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :miuix-reference:miuix-preference:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-shader:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-preference:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-ui:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-core:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-shader:processAndroidMainManifest UP-TO-DATE
+> Task :miuix-reference:miuix-core:processAndroidMainManifest UP-TO-DATE
+> Task :miuix-reference:miuix-ui:processAndroidMainManifest UP-TO-DATE
+> Task :miuix-reference:miuix-preference:processAndroidMainManifest UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:processAndroidMainManifest UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:prepareLintJarForPublish UP-TO-DATE
+> Task :miuix-reference:miuix-ui:prepareLintJarForPublish UP-TO-DATE
+> Task :miuix-reference:miuix-shader:prepareLintJarForPublish UP-TO-DATE
+> Task :miuix-reference:miuix-core:prepareLintJarForPublish UP-TO-DATE
+> Task :miuix-reference:miuix-preference:prepareLintJarForPublish UP-TO-DATE
+> Task :app:mergeGithubReleaseNativeLibs UP-TO-DATE
+> Task :app:stripGithubReleaseDebugSymbols UP-TO-DATE
+> Task :app:extractGithubReleaseNativeSymbolTables UP-TO-DATE
+> Task :app:mergeGithubReleaseNativeDebugMetadata NO-SOURCE
+> Task :kyant-backdrop:bundleAndroidMainClassesToRuntimeJar UP-TO-DATE
+> Task :kyant-backdrop:processAndroidMainJavaRes UP-TO-DATE
+> Task :kyant-backdrop:createFullJarAndroidMain UP-TO-DATE
+> Task :miuix-reference:miuix-preference:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-preference:extractAndroidMainAnnotations UP-TO-DATE
+> Task :miuix-reference:miuix-preference:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :miuix-reference:miuix-preference:syncAndroidMainLibJars UP-TO-DATE
+> Task :miuix-reference:miuix-preference:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :miuix-reference:miuix-ui:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-ui:extractAndroidMainAnnotations UP-TO-DATE
+> Task :miuix-reference:miuix-ui:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :miuix-reference:miuix-ui:syncAndroidMainLibJars UP-TO-DATE
+> Task :miuix-reference:miuix-ui:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :miuix-reference:miuix-core:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-core:extractAndroidMainAnnotations UP-TO-DATE
+> Task :miuix-reference:miuix-core:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :miuix-reference:miuix-core:syncAndroidMainLibJars UP-TO-DATE
+> Task :miuix-reference:miuix-core:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:extractAndroidMainAnnotations UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:syncAndroidMainLibJars UP-TO-DATE
+> Task :miuix-reference:miuix-squircle:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :miuix-reference:miuix-shader:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :miuix-reference:miuix-shader:extractAndroidMainAnnotations UP-TO-DATE
+> Task :miuix-reference:miuix-shader:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :miuix-reference:miuix-shader:syncAndroidMainLibJars UP-TO-DATE
+> Task :miuix-reference:miuix-shader:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :app:checkGithubReleaseDuplicateClasses UP-TO-DATE
+> Task :app:generateGithubReleaseBuildConfig UP-TO-DATE
+> Task :app:generateGithubReleaseResources UP-TO-DATE
+> Task :app:packageGithubReleaseResources UP-TO-DATE
+> Task :kyant-backdrop:generateAndroidMainEmptyResourceFiles UP-TO-DATE
+> Task :app:processGithubReleaseNavigationResources UP-TO-DATE
+> Task :app:parseGithubReleaseLocalResources UP-TO-DATE
+> Task :app:generateGithubReleaseRFile UP-TO-DATE
+> Task :kyant-backdrop:bundleAndroidMainClassesToCompileJar UP-TO-DATE
+> Task :app:kspGithubReleaseKotlin UP-TO-DATE
+> Task :app:compileGithubReleaseKotlin UP-TO-DATE
+> Task :app:javaPreCompileGithubRelease UP-TO-DATE
+> Task :app:compileGithubReleaseJavaWithJavac UP-TO-DATE
+> Task :kyant-backdrop:prepareAndroidMainArtProfile UP-TO-DATE
+> Task :app:mergeGithubReleaseArtProfile UP-TO-DATE
+> Task :kyant-backdrop:writeAndroidMainAarMetadata UP-TO-DATE
+> Task :app:checkGithubReleaseAarMetadata UP-TO-DATE
+> Task :app:mapGithubReleaseSourceSetPaths UP-TO-DATE
+> Task :app:compileGithubReleaseNavigationResources UP-TO-DATE
+> Task :app:mergeGithubReleaseResources UP-TO-DATE
+> Task :app:createGithubReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksGithubRelease UP-TO-DATE
+> Task :kyant-backdrop:processAndroidMainManifest UP-TO-DATE
+> Task :app:processGithubReleaseMainManifest UP-TO-DATE
+> Task :app:processGithubReleaseManifest UP-TO-DATE
+> Task :app:processGithubReleaseManifestForPackage UP-TO-DATE
+> Task :app:processGithubReleaseResources UP-TO-DATE
+> Task :app:expandGithubReleaseArtProfileWildcards UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:mergeGithubReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:processGithubReleaseJavaRes UP-TO-DATE
+> Task :app:mergeGithubReleaseJavaResource UP-TO-DATE
+> Task :app:mergeGithubReleaseStartupProfile UP-TO-DATE
+> Task :app:produceGithubReleaseComposeMapping UP-TO-DATE
+> Task :app:reportGithubReleaseComposeMappingErrors
+> Task :app:generateGithubReleaseAssets UP-TO-DATE
+> Task :app:mergeGithubReleaseAssets UP-TO-DATE
+> Task :app:compressGithubReleaseAssets UP-TO-DATE
+> Task :app:extractGithubReleaseVersionControlInfo UP-TO-DATE
+> Task :kyant-backdrop:prepareLintJarForPublish UP-TO-DATE
+> Task :app:generateGithubReleaseLintVitalReportModel UP-TO-DATE
+> Task :kyant-backdrop:checkAndroidMainAarMetadata UP-TO-DATE
+> Task :kyant-backdrop:extractAndroidMainAnnotations UP-TO-DATE
+> Task :kyant-backdrop:mergeAndroidMainJavaResource UP-TO-DATE
+> Task :kyant-backdrop:syncAndroidMainLibJars UP-TO-DATE
+> Task :kyant-backdrop:bundleAndroidMainLocalLintAar UP-TO-DATE
+> Task :app:lintVitalAnalyzeGithubRelease UP-TO-DATE
+> Task :app:lintVitalReportGithubRelease UP-TO-DATE
+> Task :app:lintVitalGithubRelease
+> Task :app:collectGithubReleaseDependencies UP-TO-DATE
+> Task :app:sdkGithubReleaseDependencyData UP-TO-DATE
+> Task :app:validateSigningGithubRelease UP-TO-DATE
+> Task :app:writeGithubReleaseAppMetadata UP-TO-DATE
+> Task :app:writeGithubReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:minifyGithubReleaseWithR8
+> Task :app:mergeGithubReleaseComposeMapping UP-TO-DATE
+> Task :app:compileGithubReleaseArtProfile UP-TO-DATE
+> Task :app:convertShrunkResourcesToBinaryGithubRelease UP-TO-DATE
+> Task :app:optimizeGithubReleaseResources UP-TO-DATE
+> Task :app:packageGithubRelease FAILED
+
+[Incubating] Problems report is available at: file:///C:/Users/26291/Desktop/%E6%96%B0%E5%BB%BA%E6%96%87%E4%BB%B6%E5%A4%B9%20(4)/SleepDown-Schedule-main/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+170 actionable tasks: 10 executed, 160 up-to-date
+.\gradlew.bat : 
+At line:15 char:2409
++ ... $env:Path"; .\gradlew.bat :app:assembleGithubRelease --no-daemon --ma ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:packageGithubRelease' (registered by plugin 'com.android.internal.application').
+> Multiple task action failures occurred:
+   > A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnab
+le
+      > com.android.ide.common.signing.KeytoolException: Failed to read key sleepdown from store "C:\Temp\sd-sign\keyst
+ore.p12": keystore password was incorrect
+   > A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnab
+le
+      > com.android.ide.common.signing.KeytoolException: Failed to read key sleepdown from store "C:\Temp\sd-sign\keyst
+ore.p12": keystore password was incorrect
+   > A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnab
+le
+      > com.android.ide.common.signing.KeytoolException: Failed to read key sleepdown from store "C:\Temp\sd-sign\keyst
+ore.p12": keystore password was incorrect
+   > A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnab
+le
+      > com.android.ide.common.signing.KeytoolException: Failed to read key sleepdown from store "C:\Temp\sd-sign\keyst
+ore.p12": keystore password was incorrect
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 3m 55s

@@ -75,7 +75,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.xiaomanjun.sleepdownschedule"
+        applicationId = "com.xiaomanjun.sleepdownschedule.zk"
         minSdk = 26
         targetSdk = 36
         versionCode = 31
