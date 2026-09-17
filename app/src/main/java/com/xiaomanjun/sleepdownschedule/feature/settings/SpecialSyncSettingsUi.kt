@@ -289,6 +289,7 @@ fun SpecialSyncSettingsScreen(
                             title = "学号 / 账号",
                             value = config.username,
                             onValueChange = { value -> update { it.copy(username = value) } },
+                            keyboardType = KeyboardType.Password,
                             enabled = !busy,
                             placeholder = "填写教务登录账号"
                         )

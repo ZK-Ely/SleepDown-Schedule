@@ -79,7 +79,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -641,6 +643,8 @@ private fun SettingsInlineTextField(
     moveCursorToEndOnFocus: Boolean
 ) {
     val fieldModifier = Modifier.width(170.dp)
+    val masked = keyboardType == KeyboardType.Password
+    val transformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None
     val decoration: @Composable ((@Composable () -> Unit) -> Unit) = { innerTextField ->
         Box(contentAlignment = Alignment.CenterEnd) {
             if (value.isEmpty() && placeholder.isNotEmpty()) {
@@ -662,6 +666,7 @@ private fun SettingsInlineTextField(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             textStyle = textStyle,
+            visualTransformation = transformation,
             modifier = fieldModifier,
             decorationBox = decoration
         )
@@ -694,6 +699,7 @@ private fun SettingsInlineTextField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         textStyle = textStyle,
+        visualTransformation = transformation,
         modifier = fieldModifier.onFocusChanged { focused = it.isFocused },
         decorationBox = decoration
     )
