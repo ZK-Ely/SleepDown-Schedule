@@ -23,6 +23,7 @@ import java.time.temporal.ChronoUnit
 object SpecialSyncMapper {
 
     private val DateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
     fun buildDraft(
         items: List<SpecialSyncCourseItem>,
@@ -82,7 +83,7 @@ object SpecialSyncMapper {
             )
         }
 
-        val totalWeeks = maxOf(usable.maxOf { it.zc }, usable.maxOf { effectiveWeek(it) }).coerceAtLeast(20)
+        val totalWeeks = usable.maxOf { maxOf(it.zc, effectiveWeek(it)) }.coerceAtLeast(20)
         val maxSection = usable.maxOf { it.sectionEnd }.coerceIn(1, 20)
 
         // 节次时间表：保留现有配置（existingPeriods 非空）时直接沿用；
@@ -114,8 +115,7 @@ object SpecialSyncMapper {
             totalWeeks = totalWeeks,
             currentWeek = 1,
             termStartDate = termStartDate,
-            autoCurrentWeek = termStartDate != null,
-            weekFirstDay = 1
+            autoCurrentWeek = termStartDate != null
         )
 
         return ImportDraft(
@@ -143,12 +143,11 @@ object SpecialSyncMapper {
             val prev = observed[probe]
             if (prev != null) {
                 val start = runCatching {
-                    LocalTime.parse(prev.second, DateTimeFormatter.ofPattern("HH:mm")).plusMinutes(10)
+                    LocalTime.parse(prev.second, TimeFormat).plusMinutes(10)
                 }.getOrNull()
                 if (start != null) {
                     val end = start.plusMinutes(45)
-                    val fmt = DateTimeFormatter.ofPattern("HH:mm")
-                    return start.format(fmt) to end.format(fmt)
+                    return start.format(TimeFormat) to end.format(TimeFormat)
                 }
                 break
             }

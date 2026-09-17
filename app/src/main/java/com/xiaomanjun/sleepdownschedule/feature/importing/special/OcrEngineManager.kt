@@ -76,7 +76,7 @@ internal object OcrEngineManager {
     private var sessionKey: String? = null
     private var charset: List<String> = emptyList()
 
-    /** 验证码字符约束：仅 4 位英文字母，CTC 解码时只在 {blank} ∪ 字母列中选最大值 */
+    /** 验证码字符约束：4 位英文字母与数字，CTC 解码时只在 {blank} ∪ 字母/数字列中选最大值 */
     private var letterIndices: IntArray = IntArray(0)
 
     /** 最近一次推理使用的加速设备描述（测试按钮展示用） */
@@ -156,7 +156,13 @@ internal object OcrEngineManager {
             download("$ReleaseBaseUrl/onnxruntime-$abi.so", ortSo(context))
             download("$ReleaseBaseUrl/onnxruntime4j_jni-$abi.so", ortJniSo(context))
             dir.resolve(MarkerFile).writeText(EngineVersion)
-            loadState.set(false)
+            // 引擎已重新下载：关闭持有旧 so 的会话，避免继续引用被替换的原生库
+            synchronized(this) {
+                runCatching { session?.close() }
+                session = null
+                sessionKey = null
+                loadState.set(false)
+            }
         }
         val (onnxUrl, charsetUrl) = if (model == SpecialSyncOcrMode.LocalModelOld) {
             "$ReleaseBaseUrl/$ModelOldOnnx" to "$ReleaseBaseUrl/$ModelOldCharset"
@@ -200,9 +206,14 @@ internal object OcrEngineManager {
             session = null
             sessionKey = null
             charset = emptyList()
+            letterIndices = IntArray(0)
             loadState.set(false)
             mlKitLoadState.set(false)
             injectedAssetsPath = null
+            synchronized(heldFds) {
+                heldFds.forEach { fd -> runCatching { ParcelFileDescriptor.adoptFd(fd).close() } }
+                heldFds.clear()
+            }
             engineDir(context).deleteRecursively()
         }
     }
@@ -421,9 +432,12 @@ internal object OcrEngineManager {
         gpu: Boolean = false
     ): OcrOutcome {
         if (model == SpecialSyncOcrMode.LocalModelMlkit) return OcrOutcome("", lastDevice)
-        if (!isEngineReady(context) || !isModelReady(context, model)) return OcrOutcome("", lastDevice)
-        if (!ensureNativeLoaded(context)) return OcrOutcome("", lastDevice)
         return withContext(Dispatchers.IO) {
+            // 就绪检查与原生库加载涉及文件 IO 与 System.load，必须在 IO 线程完成
+            if (!isEngineReady(context) || !isModelReady(context, model)) {
+                return@withContext OcrOutcome("", lastDevice)
+            }
+            if (!ensureNativeLoaded(context)) return@withContext OcrOutcome("", lastDevice)
             sessionMutex.withLock {
                 try {
                     val environment = OrtEnvironment.getEnvironment()

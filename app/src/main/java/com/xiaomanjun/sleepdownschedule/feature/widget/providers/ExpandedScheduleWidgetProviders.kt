@@ -2285,6 +2285,7 @@ internal object AgendaWidgetRenderer {
         }
 
         return RemoteViews(context.packageName, R.layout.widget_agenda_scrollable).apply {
+            val openAppIntent = agendaOpenAppPendingIntent(context)
             setImageViewResource(R.id.widget_agenda_icon, currentIconResId(context))
             if (custom != null && !transparentBackground) {
                 setViewVisibility(R.id.widget_agenda_background_image, View.VISIBLE)
@@ -2322,8 +2323,8 @@ internal object AgendaWidgetRenderer {
             if (canScroll) {
                 setRemoteAdapter(R.id.widget_agenda_today_list, dayCollection(dayCourses[0]))
                 setRemoteAdapter(R.id.widget_agenda_tomorrow_list, dayCollection(dayCourses[1]))
-                setPendingIntentTemplate(R.id.widget_agenda_today_list, agendaOpenAppPendingIntent(context))
-                setPendingIntentTemplate(R.id.widget_agenda_tomorrow_list, agendaOpenAppPendingIntent(context))
+                setPendingIntentTemplate(R.id.widget_agenda_today_list, openAppIntent)
+                setPendingIntentTemplate(R.id.widget_agenda_tomorrow_list, openAppIntent)
             }
             // 无课天数显示居中提示（与今明课程一致的文案）；低版本系统提示需升级
             setViewVisibility(
@@ -2347,7 +2348,7 @@ internal object AgendaWidgetRenderer {
                 setViewVisibility(R.id.widget_agenda_today_list, View.GONE)
                 setViewVisibility(R.id.widget_agenda_tomorrow_list, View.GONE)
             }
-            setOnClickPendingIntent(R.id.widget_agenda_root, agendaOpenAppPendingIntent(context))
+            setOnClickPendingIntent(R.id.widget_agenda_root, openAppIntent)
         }
     }
 

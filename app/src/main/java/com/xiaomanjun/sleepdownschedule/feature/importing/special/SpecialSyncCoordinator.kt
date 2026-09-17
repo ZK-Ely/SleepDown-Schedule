@@ -5,6 +5,8 @@ import android.util.Log
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -32,15 +34,10 @@ class SpecialSyncCoordinator(private val context: Context) {
 
     private val repository get() = (context.applicationContext as CourseScheduleApp).repository
 
-    private val api = SpecialSyncApi()
+    /** 串行化同步：避免后台自动刷新与用户手动同步并发执行 */
+    private val syncMutex = Mutex()
 
-    /** 当前是否应显示特殊课表的刷新入口：启用中且特殊课表存在 */
-    fun isActive(): Boolean {
-        val config = SpecialSyncStore.load(context)
-        return config.enabled && config.scheduleId > 0
-    }
-
-    fun currentScheduleId(): Int = SpecialSyncStore.load(context).scheduleId
+    private var api = SpecialSyncApi()
 
     /**
      * 启用开关时调用：创建（或复用）特殊课表并激活，让用户立即切到该课表。
@@ -54,7 +51,6 @@ class SpecialSyncCoordinator(private val context: Context) {
         val isCurrent = profiles.firstOrNull { it.id == scheduleId }?.isActive == true
         if (!isCurrent) repository.activateSchedule(scheduleId)
         SpecialSyncStore.save(context, store.copy(scheduleId = scheduleId, enabled = true))
-        api.attach(context)
         return scheduleId
     }
 
@@ -79,6 +75,7 @@ class SpecialSyncCoordinator(private val context: Context) {
                 return "本地识别组件尚未下载，请先在下方下载引擎与模型"
             }
         }
+        api = SpecialSyncApi(config.server)
         api.attach(context)
         val bytes = try {
             api.getCaptcha()
@@ -110,12 +107,14 @@ class SpecialSyncCoordinator(private val context: Context) {
      * @param manualCaptchaText 用户手动输入的验证码；非空时优先用它登录一次，
      *        OCR 仅在未提供手动验证码或手动登录仍报验证码错误时介入。
      */
-    suspend fun sync(manualCaptchaText: String = ""): SyncResult = withContext(Dispatchers.IO) {
-        val store = SpecialSyncStore.load(context)
-        if (store.username.isBlank() || store.password.isBlank()) {
-            return@withContext SyncResult.Failure("请先填写账号和密码")
-        }
-        api.attach(context)
+    suspend fun sync(manualCaptchaText: String = ""): SyncResult = syncMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val store = SpecialSyncStore.load(context)
+            if (store.username.isBlank() || store.password.isBlank()) {
+                return@withContext SyncResult.Failure("请先填写账号和密码")
+            }
+            api = SpecialSyncApi(store.server)
+            api.attach(context)
 
         // 1) 会话恢复：token 有效直接进入拉取
         var loggedIn = runCatching { api.tryResume() }.getOrDefault(false)
@@ -205,6 +204,7 @@ class SpecialSyncCoordinator(private val context: Context) {
             )
         )
         SyncResult.Success(items.size, summary)
+        }
     }
 
     private sealed class AttemptOutcome {

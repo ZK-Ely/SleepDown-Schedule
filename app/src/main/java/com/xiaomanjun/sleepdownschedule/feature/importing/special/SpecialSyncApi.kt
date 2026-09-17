@@ -10,7 +10,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
-import java.util.zip.GZIPInputStream
 import javax.crypto.Cipher
 
 /** 教务系统单条课程记录（kbList 元素）：一次授课占用 = 某周某天某节段 */
@@ -169,10 +168,9 @@ class SpecialSyncApi(private val baseUrl: String = DefaultBaseUrl) {
         conn.connectTimeout = 10000
         conn.readTimeout = 15000
         conn.setRequestProperty("User-Agent", UA)
-        conn.setRequestProperty("Accept-Encoding", "gzip")
         if (token != null) conn.setRequestProperty("token", token)
-        val stream = if ("gzip".equals(conn.contentEncoding, true)) GZIPInputStream(conn.inputStream) else conn.inputStream
-        return stream.use { it.readBytes() }
+        // 未手动设置 Accept-Encoding 时 HttpURLConnection 会自动协商 gzip 并透明解压
+        return conn.inputStream.use { it.readBytes() }
     }
 
     private fun postJson(path: String, body: String, token: String?): String {
@@ -187,8 +185,7 @@ class SpecialSyncApi(private val baseUrl: String = DefaultBaseUrl) {
         conn.setRequestProperty("User-Agent", UA)
         if (token != null) conn.setRequestProperty("token", token)
         conn.outputStream.use { it.write(payload) }
-        val stream = if ("gzip".equals(conn.contentEncoding, true)) GZIPInputStream(conn.inputStream) else conn.inputStream
-        return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+        return BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { it.readText() }
     }
 
     private fun JSONObject.optStringOrNull(key: String): String? {

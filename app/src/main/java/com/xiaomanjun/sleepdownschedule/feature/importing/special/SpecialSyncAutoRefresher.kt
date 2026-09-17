@@ -3,7 +3,6 @@ package com.xiaomanjun.sleepdownschedule.feature.importing.special
 import android.content.Context
 import android.util.Log
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -23,7 +22,7 @@ object SpecialSyncAutoRefresher {
     private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
     fun start(app: CourseScheduleApp) {
-        app.applicationScope.launch(start = CoroutineStart.LAZY) {
+        app.applicationScope.launch {
             // 启动后先等一个 tick 周期，避开应用冷启动的高负载窗口
             delay(TickIntervalMillis)
             while (isActive) {
@@ -31,7 +30,7 @@ object SpecialSyncAutoRefresher {
                     .onFailure { Log.w(TAG, "auto refresh tick failed", it) }
                 delay(TickIntervalMillis)
             }
-        }.start()
+        }
     }
 
     /** 供前台恢复（ON_RESUME）等时机立即补一次检查 */

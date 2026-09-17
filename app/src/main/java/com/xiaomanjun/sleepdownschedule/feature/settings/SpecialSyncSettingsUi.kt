@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -64,7 +65,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -447,12 +450,20 @@ fun SpecialSyncSettingsScreen(
                                 )
                             }
                             SettingsDivider()
-                            val componentReady = remember(config.ocrLocalModel, busy) {
-                                OcrEngineManager.isComponentReady(context, config.ocrLocalModel)
+                            // 组件状态涉及文件遍历与磁盘读取：异步计算，避免组合期主线程 IO
+                            val componentReady by produceState(false, config.ocrLocalModel, busy) {
+                                value = withContext(Dispatchers.IO) {
+                                    OcrEngineManager.isComponentReady(context, config.ocrLocalModel)
+                                }
                             }
-                            val installedSize = remember(config.ocrLocalModel, busy) {
-                                val bytes = OcrEngineManager.installedSizeBytes(context)
-                                if (bytes > 0L) "约 ${bytes / (1024 * 1024)}MB" else "未安装"
+                            val installedSize by produceState("未安装", config.ocrLocalModel, busy) {
+                                val bytes = withContext(Dispatchers.IO) {
+                                    OcrEngineManager.installedSizeBytes(context)
+                                }
+                                value = if (bytes > 0L) "约 ${bytes / (1024 * 1024)}MB" else "未安装"
+                            }
+                            val sizeHint = remember(config.ocrLocalModel) {
+                                OcrEngineManager.pendingSizeHint(context, config.ocrLocalModel)
                             }
                             SettingsActionRow(
                                 title = when {
@@ -461,7 +472,7 @@ fun SpecialSyncSettingsScreen(
                                 },
                                 subtitle = when {
                                     componentReady -> "本地识别已可使用，已占用 ${installedSize}空间；更换模型后点「下载」补齐缺失组件"
-                                    else -> "首次使用需在线下载引擎与模型（${OcrEngineManager.pendingSizeHint(context, config.ocrLocalModel)}），仅此一次"
+                                    else -> "首次使用需在线下载引擎与模型（$sizeHint），仅此一次"
                                 },
                                 buttonText = if (componentReady) "卸载" else "下载",
                                 iconRes = if (componentReady) R.drawable.ic_trash else R.drawable.ic_download,
