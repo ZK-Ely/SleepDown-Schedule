@@ -114,6 +114,11 @@ class ScheduleViewModel(
         repository.addCourses(courses)
     }
 
+    fun copyCourses(courses: List<CourseEntity>, onResult: (Boolean) -> Unit) =
+        launchCourseMutation(onSuccess = { onResult(true) }, onFailure = { onResult(false) }) {
+            repository.copyCourses(courses)
+        }
+
     fun updateCourse(course: CourseEntity) = launchCourseMutation("课程已更新") {
         repository.updateCourse(course)
     }
@@ -145,7 +150,8 @@ class ScheduleViewModel(
         repository.deleteCourse(course)
     }
 
-    fun deleteCourses(courses: List<CourseEntity>) = launchCourseMutation("课程已删除") {
+    fun deleteCourses(courses: List<CourseEntity>, onFailure: (() -> Unit)? = null) =
+        launchCourseMutation("课程已删除", onFailure = onFailure) {
         repository.deleteCourses(courses)
     }
 
@@ -154,8 +160,8 @@ class ScheduleViewModel(
             repository.deleteCourses(courses)
         }
 
-    fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) =
-        launchCourseMutation("课程已删除") {
+    fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int, onFailure: (() -> Unit)? = null) =
+        launchCourseMutation("课程已删除", onFailure = onFailure) {
             repository.deleteCoursesSingleWeek(courses, targetWeek)
         }
 
@@ -167,6 +173,7 @@ class ScheduleViewModel(
     private fun launchCourseMutation(
         successMessage: String? = null,
         onSuccess: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null,
         mutation: suspend () -> Unit
     ) = viewModelScope.launch {
         try {
@@ -179,6 +186,7 @@ class ScheduleViewModel(
         } catch (error: Throwable) {
             Log.w("ScheduleViewModel", "Course mutation rejected", error)
             snackbar.value = error.message ?: "课程操作失败，请重试"
+            onFailure?.invoke()
         }
     }
 

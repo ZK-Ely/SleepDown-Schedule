@@ -618,9 +618,25 @@ private val MIGRATION_38_39 = object : Migration(38, 39) {
 
 private val MIGRATION_39_40 = object : Migration(39, 40) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // 每周第一天（1=周一 … 7=周日），学期周次切分锚点
-        if (!db.hasColumn("schedule_config", "weekFirstDay")) {
-            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekFirstDay INTEGER NOT NULL DEFAULT 1")
+        if (!db.hasColumn("schedule_config", "courseCardColoredTextEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+}
+
+/**
+ * 40→41：移除已废弃的 weekFirstDay 残留列（从未被任何 UI 消费）。
+ * 兜底补齐 courseCardColoredTextEnabled：历史版本较旧的库升级到 41 时，
+ * 该列可能尚未被 39→40 迁移创建，缺列会触发 Room schema 校验崩溃。
+ */
+private val MIGRATION_40_41 = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "courseCardColoredTextEnabled")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+        if (db.hasColumn("schedule_config", "weekFirstDay")) {
+            // SQLite 3.35+（Android 12+）支持 DROP COLUMN；更早版本无此分支的存量设备
+            runCatching { db.execSQL("ALTER TABLE schedule_config DROP COLUMN weekFirstDay") }
         }
     }
 }
@@ -664,7 +680,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_36_37,
     MIGRATION_37_38,
     MIGRATION_38_39,
-    MIGRATION_39_40
+    MIGRATION_39_40,
+    MIGRATION_40_41
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -834,6 +851,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "cardAlpha", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardBlur", "REAL NOT NULL DEFAULT 18")
     ensureSqliteColumn(db, "schedule_config", "courseCardGlassEnabled", "INTEGER NOT NULL DEFAULT 1")
+    ensureSqliteColumn(db, "schedule_config", "courseCardColoredTextEnabled", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "courseCardFontScale", "REAL NOT NULL DEFAULT 1")
     ensureSqliteColumn(db, "schedule_config", "courseCardColorMode", "TEXT NOT NULL DEFAULT 'SOLID'")
     ensureSqliteColumn(db, "schedule_config", "courseCardPalette", "TEXT NOT NULL DEFAULT ''")
@@ -865,7 +883,6 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "noonPeriodCount", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "afternoonPeriodCount", "INTEGER NOT NULL DEFAULT 4")
     ensureSqliteColumn(db, "schedule_config", "eveningPeriodCount", "INTEGER NOT NULL DEFAULT 4")
-    ensureSqliteColumn(db, "schedule_config", "weekFirstDay", "INTEGER NOT NULL DEFAULT 1")
     db.execSQL(scheduleConfigCreateSql("schedule_config_room_fix"))
     db.execSQL(
         """
@@ -876,6 +893,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -893,6 +911,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
             wallpaperLandscapeCenterX, wallpaperLandscapeCenterY, wallpaperLandscapeScale,
             wallpaperSourceWidth, wallpaperSourceHeight,
             cardColorArgb, cardAlpha, courseCardBlur, courseCardGlassEnabled, courseCardFontScale,
+            courseCardColoredTextEnabled,
             courseCardColorMode, courseCardPalette,
             alternateCardColorArgb, alternateCardAlpha, alternateCourseCardBlur, alternateCourseCardFontScale,
             alternateCourseCardColorMode, alternateCourseCardPalette,
@@ -937,6 +956,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         courseCardBlur REAL NOT NULL,
         courseCardGlassEnabled INTEGER NOT NULL,
         courseCardFontScale REAL NOT NULL,
+        courseCardColoredTextEnabled INTEGER NOT NULL DEFAULT 0,
         courseCardColorMode TEXT NOT NULL DEFAULT 'SOLID',
         courseCardPalette TEXT NOT NULL DEFAULT '',
         alternateCardColorArgb INTEGER NOT NULL DEFAULT 4293516543,
@@ -966,8 +986,7 @@ private fun scheduleConfigCreateSql(table: String): String =
         morningPeriodCount INTEGER NOT NULL DEFAULT 4,
         noonPeriodCount INTEGER NOT NULL DEFAULT 0,
         afternoonPeriodCount INTEGER NOT NULL DEFAULT 4,
-        eveningPeriodCount INTEGER NOT NULL DEFAULT 4,
-        weekFirstDay INTEGER NOT NULL DEFAULT 1
+        eveningPeriodCount INTEGER NOT NULL DEFAULT 4
     )
     """.trimIndent()
 

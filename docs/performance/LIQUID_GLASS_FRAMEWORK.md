@@ -1,6 +1,6 @@
 # 液态玻璃 2.0 统一框架与同 Activity 动画
 
-更新时间：2026-08-28
+更新时间：2026-09-14
 
 ## 当前结论
 
@@ -10,12 +10,16 @@
 - 首页仍保留 `Background`、`Content`、`PickerScene` 三个真实采样域；`ChromeCombined` 只组合前两个，Android Dialog 通过 `DialogBridge` 和既有屏幕坐标补偿采样，未合成错误的全局 Backdrop。
 - 大玻璃 allowlist 已包含三个首页菜单目的页、大屏个性化渐进模糊/Backdrop aura，以及稳定周视图课程卡。原 Gradle 总门控已移除，正式构建固定启用。阶段三液态动效实验及其构建开关已从生产代码删除。
 - 本轮没有修改 Oplus callback、Bundle、系统 leash、返回时序、能力开关或逐路线 allowlist。
+- 课程轮廓光使用 `BlendMode.Plus` 加色方式提亮课程色。左右彩色侧光已取消，顶部保留原有衰减并简化为 34 顶点网格，底部光保留；日/周视图及玻璃明暗风格共用该路线。HDR 已移除，详见 [9 月 13 日跟进](2026-09-13-mainline-preview-freeze.md)。这不是帧率提升结论。
+- 首页弹层的背景保留原有 Composition、课程材质与 GPU 场景层，冻结数据输入并重放已录制画面；缩放、模糊继续在外层运行。首页不再进入下文历史方案中的材质卸载、纯色替代和分批恢复状态机。实时个性化预览与复制落点保留必要更新，范围与验证见上述跟进报告。
+- 冻结背景的运动参数改在图层属性阶段更新，模糊绘制回调不再读取逐帧进度；Opening/Closing 共用半分辨率模糊层，约 2dp 以下平滑露出原始清晰场景，不再在 Closing 中途切到全分辨率模糊。详情转场记录普通可见帧后直接重放该帧，避免再次遍历内容。实现边界与验证见 [冻结渲染跟进](2026-09-14-frozen-render-pipeline.md)。
+- 个性化面板读取最新草稿；离散颜色和开关变化单独更新背景配置与录制标识，不等待冻结解除。彩色文字和首页两次点击复制的实现、数据边界与验证见 [9 月 14 日跟进](2026-09-14-personalization-copy.md)。
 
 ## 上游约束与本地决策
 
 - 官方 [`DrawBackdropModifier`](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt)会为每个 `drawBackdrop` consumer 建立自己的效果/GraphicsLayer 路径；共享 provider 不等于合并 consumer。大量同时可见玻璃的退化与 [Issue #41](https://github.com/Kyant0/AndroidLiquidGlass/issues/41) 的 32 个对象案例一致，因此本地先统计 consumer layer 和 offscreen pixels，而不是误把 provider 复用当成全部优化。
 - 独立 Popup Window 的采样坐标问题仍按 [Issue #91](https://github.com/Kyant0/AndroidLiquidGlass/issues/91) 处理：业务 Popup 保持 Activity 根 overlay/既有屏幕坐标补偿，不新建无法对齐的窗口级 provider。
-- 多 shape lens 与稳定 envelope 的限制见下方实验后端。课程卡高负载降采样已获用户明确允许，但只降低 backdrop/blur/lens 纹理；卡片布局、文字、点击、tint、高光、阴影和边缘继续全分辨率。其它玻璃不得顺带降低质量。
+- 多 shape lens 与稳定 envelope 的限制见下方实验后端。当前降采样场景包括课程卡、课程/导入编辑器、个性化及中心弹窗，见 [Beta5 跟进](2026-09-12-beta5-lifecycle-gestures.md)。只降低 backdrop/blur/lens 纹理；布局、文字、点击、tint、高光、阴影和边缘继续全分辨率。其它场景需按具体性能问题评估，不全局降低质量。
 
 ## 结构
 
@@ -36,7 +40,7 @@
 
 1. 每个真实采样源实例只创建一个稳定 provider，消费者复用其 Backdrop；首页 Background/Content/PickerScene 各自保持单一主 provider，缓存周视图和控件内部轨道等派生源仍按其真实所有权独立存在。同一组件实例不因普通重组更换 provider、Shape 或效果回调身份。
 2. 动态参数通过 `rememberUpdatedState` 在已有 Modifier node 中读取，避免无关重组重新构造完整 Kyant 效果链。
-3. 首页既有周视图 GPU 缓存、课程编辑器两帧预热、Preparing 预热和 Open 稳态真实内容继续保留，并纳入统一场景阶段。
+3. 首页保留周视图 GPU 缓存；课程表单在外壳与背景动画结束后才挂载当前页面及可见字段，Open 使用真实内容。当前时序及顶栏覆盖见 [Beta5 顶栏、轮廓光与表单](2026-09-12-beta5-header-light-editor.md)，不再使用早期的整页表单预载/录制等待。
 4. Debug/benchmark 在每个完成帧重置一次统计区间，并把以下值写入 JankStats state 和 Perfetto counter；动画标签切换时另输出区间日志。Release 不进入逐帧计数分支：
    - `SleepDown.Glass.ProviderRecords`
    - `SleepDown.Glass.ProviderInstances`

@@ -113,6 +113,7 @@ object BackupRoomRestoreMapper {
                 courseCardOutlineLightEnabled = config.courseCardOutlineLightEnabled,
                 courseCardRefractionStrength = config.courseCardRefractionStrength.coerceIn(0f, 1f),
                 courseCardGaussianBlurEnabled = config.courseCardGaussianBlurEnabled,
+                courseCardColoredTextEnabled = config.courseCardColoredTextEnabled,
                 courseCardFontScale = config.courseCardFontScale,
                 courseCardColorMode = if (
                     config.cardColorArgb == MulticolorCourseCardArgb &&

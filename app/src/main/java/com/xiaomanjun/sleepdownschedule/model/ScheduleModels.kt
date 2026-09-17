@@ -88,6 +88,7 @@ data class ScheduleConfigEntity(
     @ColumnInfo(defaultValue = "1") val courseCardOutlineLightEnabled: Boolean = true,
     @ColumnInfo(defaultValue = "0.5") val courseCardRefractionStrength: Float = 0.5f,
     @ColumnInfo(defaultValue = "1") val courseCardGaussianBlurEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "0") val courseCardColoredTextEnabled: Boolean = false,
     val courseCardFontScale: Float = 1f,
     @ColumnInfo(defaultValue = "'SOLID'") val courseCardColorMode: CourseCardColorMode = CourseCardColorMode.SOLID,
     @ColumnInfo(defaultValue = "''") val courseCardPalette: String = "",

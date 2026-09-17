@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
 import androidx.compose.runtime.SideEffect
+import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.app.startup.*
@@ -11,6 +12,8 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseRemovalMotion
 
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
@@ -446,10 +449,13 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current
     var readabilityShadow by remember(readability.bitmap, readability.config, readability.rootSize, color) {
         mutableStateOf(HomeReadabilityShadow.None)
     }
     val measuredModifier = modifier.onGloballyPositioned { coordinates ->
+        // Background zoom must not resample wallpaper pixels or restyle frozen labels.
+        if (backgroundFrozen) return@onGloballyPositioned
         val next = regionTextShadow(
             readability,
             coordinates.boundsInRoot(),
@@ -689,8 +695,9 @@ internal fun HomeScreen(
     }
     val textColor = homeForegroundColor(state.config)
     var weekEditMode by remember(state.config.id) { mutableStateOf(false) }
-    var pendingSingleWeekDelete by remember(state.config.id) {
-        mutableStateOf<Pair<CourseEntity, Int>?>(null)
+    val copyPlacementActive = LocalCourseCopy.current?.active == true
+    LaunchedEffect(copyPlacementActive) {
+        if (copyPlacementActive) weekEditMode = false
     }
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -705,14 +712,12 @@ internal fun HomeScreen(
             // edit session before it opens so returning to Home recreates the long-press entry
             // path instead of leaving the root pointer input in its edit-mode tap-only branch.
             weekEditMode = false
-            pendingSingleWeekDelete = null
         }
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 weekEditMode = false
-                pendingSingleWeekDelete = null
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -818,9 +823,7 @@ internal fun HomeScreen(
                             conflictFocusCourseId = conflictFocusCourseId,
                             conflictFocusCourseKey = conflictFocusCourseKey,
                             onResolveCourseConflict = onResolveCourseConflict,
-                            onDeleteCourseSingleWeek = { course, week ->
-                                pendingSingleWeekDelete = course to week
-                            },
+                            onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
                             onCourseClick = { course, week, sourceBounds ->
                                 onCourseClick(course, week, sourceBounds)
                             }
@@ -828,24 +831,6 @@ internal fun HomeScreen(
                     }
                 }
             }
-        }
-        pendingSingleWeekDelete?.let { (course, week) ->
-            LiquidAlertDialog(
-                title = "删除单周课程",
-                message = "确定删除第${week}周的“${course.name}”吗？只会删除当前周这一次，不会删除其它周的同名课程。",
-                actions = listOf(
-                    LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
-                        pendingSingleWeekDelete = null
-                    },
-                    LiquidAlertAction("确认删除", LiquidAlertActionStyle.Destructive) {
-                        pendingSingleWeekDelete = null
-                        onDeleteCourseSingleWeek(course, week)
-                    }
-                ),
-                backdrop = backdrop,
-                config = state.config,
-                onDismissRequest = { pendingSingleWeekDelete = null }
-            )
         }
     }
 }
@@ -1538,28 +1523,7 @@ internal fun DayScheduleScreen(
         onDispose { onAgentPagerSettledChange(false) }
     }
 
-    LaunchedEffect(pagerState, displayDate) {
-        snapshotFlow {
-            Triple(
-                pagerState.isScrollInProgress,
-                pagerState.settledPage,
-                pagerState.currentPage + pagerState.currentPageOffsetFraction
-            )
-        }.distinctUntilChanged().collect { (scrolling, settledPage, pagePosition) ->
-            if (!scrolling || programmaticDayScroll) return@collect
-            val delta = pagePosition - settledPage
-            val desiredPage = when {
-                delta >= 0.75f -> settledPage + 1
-                delta <= -0.75f -> settledPage - 1
-                else -> settledPage
-            }.coerceIn(0, centerPage * 2)
-            val desiredDate = clampToNavigationRange(dateForPage(desiredPage))
-            if (desiredDate != displayDate) {
-                gestureCommittedDate = desiredDate
-                onSwipeDay(ChronoUnit.DAYS.between(displayDate, desiredDate).toInt())
-            }
-        }
-    }
+    // Commit only settled pages. Publishing at 75% rebuilt the date's cards while flinging.
     LaunchedEffect(pagerState.settledPage) {
         if (programmaticDayScroll) return@LaunchedEffect
         val settledDate = dateForPage(pagerState.settledPage)
@@ -1625,7 +1589,10 @@ internal fun DayScheduleScreen(
                             .thenBy { it.name }
                     )
             }
-            val minuteClock by produceState(initialValue = LocalDateTime.now(), page) {
+            val backgroundFrozen = LocalHomeBackgroundFrozen.current
+            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen) {
+                if (backgroundFrozen) return@produceState
+                value = LocalDateTime.now()
                 while (true) {
                     val nowMillis = System.currentTimeMillis()
                     delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
@@ -1678,11 +1645,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedDayCourses = remember(dayCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    dayCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, dayCourses)
             }
             val primaryDayFinished = shouldShowSecondaryDay(
                 displayDayCount = displayDayCount,
@@ -1719,11 +1682,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val groupedSecondaryCourses = remember(secondaryCourses, state.config) {
-                PeriodDayPart.entries.mapNotNull { part ->
-                    secondaryCourses.filter { course -> courseDayPart(state.config, course) == part }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { part to it }
-                }
+                groupDayCourses(state.config, secondaryCourses)
             }
             // Two-day mode owns two calendar days, even when the following day is empty. The old
             // course-presence gate made the second day disappear while browsing dates whose next
@@ -1736,7 +1695,7 @@ internal fun DayScheduleScreen(
                     HomeReadableText(if (isToday) "今天没有课程" else "这一天没有课程", color = textColor)
                 }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
-                    item(key = "primary-day-part-$targetDate-${part.name}") {
+                    item(key = "primary-day-part-$targetDate-${part?.name ?: "OTHER"}") {
                         DayPartHeader(
                             part = part,
                             courses = coursesInPart,
@@ -1777,7 +1736,7 @@ internal fun DayScheduleScreen(
                         }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
-                        item(key = "secondary-day-part-$visibleDate-${part.name}") {
+                        item(key = "secondary-day-part-$visibleDate-${part?.name ?: "OTHER"}") {
                             DayPartHeader(
                                 part = part,
                                 courses = coursesInPart,
@@ -1885,11 +1844,23 @@ internal fun courseDayPart(
     return PeriodDayPart.entries.firstOrNull { firstPeriod in config.periodRange(it) }
 }
 
-private fun dayPartLabel(part: PeriodDayPart): String = when (part) {
+/** Every course must remain reachable even when its periods have no configured day part. */
+internal fun groupDayCourses(
+    config: ScheduleConfigEntity,
+    courses: List<CourseEntity>
+): List<Pair<PeriodDayPart?, List<CourseEntity>>> {
+    val byPart = courses.groupBy { courseDayPart(config, it) }
+    return (PeriodDayPart.entries + null).mapNotNull { part ->
+        byPart[part]?.let { part to it }
+    }
+}
+
+private fun dayPartLabel(part: PeriodDayPart?): String = when (part) {
     PeriodDayPart.MORNING -> "上午"
     PeriodDayPart.NOON -> "中午"
     PeriodDayPart.AFTERNOON -> "下午"
     PeriodDayPart.EVENING -> "晚上"
+    null -> "其他时间"
 }
 
 @Composable
@@ -1944,7 +1915,7 @@ private fun DayDateSectionHeader(
 
 @Composable
 private fun DayPartHeader(
-    part: PeriodDayPart,
+    part: PeriodDayPart?,
     courses: List<CourseEntity>,
     periods: List<PeriodEntity>,
     textColor: ComposeColor
@@ -2013,7 +1984,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
                 )
             }
         }
-        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale)
+        CourseCard(course, periods, showTime = false, showWeeks = false, cardColor = cardColor, backdrop = backdrop, config = config, onClick = { sourceBounds -> onCourseClick(course, currentWeek, sourceBounds) }, entranceIndex = entranceIndex, tabletFontScale = tabletFontScale, displayedWeek = currentWeek)
     }
 }
 
@@ -2024,8 +1995,10 @@ internal fun DayCourseCardTextContent(
     showTime: Boolean,
     showWeeks: Boolean,
     textColor: ComposeColor,
-    tabletFontScale: Float
+    tabletFontScale: Float,
+    config: ScheduleConfigEntity
 ) {
+    val themeColor = if (config.courseCardColoredTextEnabled) courseCardBaseColor(config, course) else null
     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val safeTabletScale = tabletFontScale.coerceAtLeast(1f)
         val titleStyle = MaterialTheme.typography.titleMedium.copy(
@@ -2036,41 +2009,43 @@ internal fun DayCourseCardTextContent(
             fontSize = MaterialTheme.typography.bodyMedium.fontSize * safeTabletScale,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * safeTabletScale
         )
-        Text(course.name, style = titleStyle, color = textColor)
+        CourseCardText(course.name, style = titleStyle, color = textColor, themeColor = themeColor)
         if (showTime) {
-            Text(
+            CourseCardText(
                 courseHomeTimeDetail(course, periods),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.location.isNullOrBlank()) {
-            Text("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("地点：" + course.location, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (!course.teacher.isNullOrBlank()) {
-            Text("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("教师：" + course.teacher, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
         if (showWeeks) {
-            Text(
+            CourseCardText(
                 "周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity),
+                themeColor = themeColor,
                 style = bodyStyle,
                 color = textColor.copy(alpha = 0.86f)
             )
         }
         if (!course.note.isNullOrBlank()) {
-            Text("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f))
+            CourseCardText("备注：" + course.note, style = bodyStyle, color = textColor.copy(alpha = 0.86f), themeColor = themeColor)
         }
     }
 }
 
 @Composable
-fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f) {
+fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, entranceIndex: Int? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null) {
     val resolvedCardColor = if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor =
         if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
         else if (config.courseCardGlassEnabled) readableOn(resolvedCardColor)
         else glassForegroundColor(config)
-    var ownBounds by remember { mutableStateOf<Rect?>(null) }
+    val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
@@ -2097,7 +2072,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             }
         )
         .onGloballyPositioned { coordinates ->
-            ownBounds = coordinates.boundsInRoot()
+            ownBounds[0] = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -2110,10 +2085,12 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         backdrop = backdrop,
         config = config,
         course = course,
-        modifier = sharedModifier.then(entranceModifier),
+        modifier = sharedModifier.then(entranceModifier).then(
+            if (displayedWeek != null) Modifier.courseRemovalMotion(course, displayedWeek, resolvedCardColor) else Modifier
+        ),
         shape = RoundedRectangle(24.dp),
         expandedOutlineLight = true,
-        onClick = if (onClick != null) ({ onClick(ownBounds) }) else null
+        onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
     ) {
         DayCourseCardTextContent(
             course = course,
@@ -2121,7 +2098,8 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             showTime = showTime,
             showWeeks = showWeeks,
             textColor = textColor,
-            tabletFontScale = tabletFontScale
+            tabletFontScale = tabletFontScale,
+            config = config
         )
     }
     }

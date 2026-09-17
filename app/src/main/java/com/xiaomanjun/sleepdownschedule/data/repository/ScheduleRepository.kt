@@ -261,6 +261,22 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    /** Validate the chosen empty slot again inside the same transaction that creates the copy. */
+    suspend fun copyCourses(courses: List<CourseEntity>) {
+        require(courses.isNotEmpty()) { "没有可复制的课程" }
+        val expectedScheduleId = courses.map { it.scheduleId }.distinct().single()
+        database.withTransaction {
+            require(activeScheduleId() == expectedScheduleId) { "课表已切换，请重新选择复制位置" }
+            val normalized = normalizeCoursesForSchedule(courses.map { it.copy(id = 0) }, expectedScheduleId)
+            val conflicts = com.xiaomanjun.sleepdownschedule.domain.course.conflictWeeksForAddedCourses(
+                normalized, courseDao.getCourses(expectedScheduleId), configDao.getPeriods(expectedScheduleId)
+            )
+            require(conflicts.isEmpty()) { "目标位置已有课程，请重新选择复制位置" }
+            courseDao.insertCourses(normalized)
+            mergeCompatibleCourseFragments(expectedScheduleId)
+        }
+    }
+
     suspend fun updateCourse(course: CourseEntity) {
         database.withTransaction {
             val scheduleId = activeScheduleId()

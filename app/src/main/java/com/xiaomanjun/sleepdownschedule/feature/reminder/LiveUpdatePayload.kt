@@ -64,6 +64,33 @@ internal data class LiveUpdatePayload(
         else -> startAtMillis()?.let { nowMillis >= it } ?: false
     }
 
+    fun refreshBoundaries(): List<Long> = buildList {
+        if (duringClassEnabled && !isPreview()) {
+            segments.forEach {
+                add(it.startAtMillis)
+                add(it.endAtMillis)
+            }
+        } else {
+            startAtMillis()?.let { add(it) }
+        }
+        if (expiresAtMillis > 0L) add(expiresAtMillis)
+    }.distinct().sorted()
+
+    /** Refresh minute text when its displayed value changes, or at an earlier phase/expiry. */
+    fun nextRefreshAtMillis(nowMillis: Long): Long? {
+        if (shouldStop(nowMillis)) return null
+        val boundary = refreshBoundaries().firstOrNull { it > nowMillis }
+        val minuteTextTick = statusAt(nowMillis).nextTransitionAtMillis
+            ?.takeIf { it > nowMillis }
+            ?.let { target ->
+                // minutesUntil uses ceil. Align to the target's seconds, not the wall-clock
+                // minute: for an 08:00:30 class, "11分钟" becomes "10分钟" at 07:50:30.
+                val remaining = target - nowMillis
+                nowMillis + (remaining - 1L) % 60_000L + 1L
+            }
+        return listOfNotNull(boundary, minuteTextTick).minOrNull()
+    }
+
     fun statusAt(nowMillis: Long = System.currentTimeMillis()): LiveUpdateStatus {
         if (kind == LiveUpdateKind.TOMORROW) {
             return LiveUpdateStatus(

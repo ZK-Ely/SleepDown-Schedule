@@ -472,7 +472,9 @@ fun TodayAgentCard(
         }
     }
 
-    LaunchedEffect(date) {
+    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current
+    LaunchedEffect(date, backgroundFrozen) {
+        if (backgroundFrozen) return@LaunchedEffect
         while (true) {
             now = LocalDateTime.now()
             delay(60_000L - (System.currentTimeMillis() % 60_000L))
