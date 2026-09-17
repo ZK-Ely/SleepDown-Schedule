@@ -57,6 +57,8 @@ class CourseScheduleApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // :ocr 是即用即弃的识别进程（用完自杀回收原生内存），跳过全部应用初始化
+        if (isOcrServiceProcess()) return
         AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
         AppIconManager.applyStoredMode(this)
         SleepDownRemoteConfig.initialize(this, applicationScope)
@@ -121,6 +123,11 @@ class CourseScheduleApp : Application() {
             }
         }
     }
+
+    private fun isOcrServiceProcess(): Boolean = runCatching {
+        val cmdline = File("/proc/self/cmdline").readBytes().toString(Charsets.UTF_8)
+        cmdline.substringBefore('\u0000').trim().endsWith(":ocr")
+    }.getOrDefault(false)
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)

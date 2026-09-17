@@ -12,6 +12,9 @@ import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -43,6 +46,7 @@ data class OcrOutcome(val text: String, val device: String)
  * - onnxruntime4j_jni-<abi>.so      Java 绑定 JNI 桥
  * - common.onnx / common.json       ddddocr 新模型 + 字符集
  * - common_old.onnx / common_old.json  ddddocr 旧模型 + 字符集
+ * - <file>.crc                      每个资产的 CRC32 侧车校验文件（8 位十六进制文本）
  * <abi> ∈ arm64-v8a / armeabi-v7a / x86_64 / x86
  */
 internal object OcrEngineManager {
@@ -76,6 +80,10 @@ internal object OcrEngineManager {
     private var sessionKey: String? = null
     private var charset: List<String> = emptyList()
 
+    /** 闲置自动释放：验证码识别是低频操作，模型常驻会白占几十 MB native 内存 */
+    private const val IdleReleaseDelayMillis = 60_000L
+    private var idleReleaseJob: Job? = null
+
     /** 验证码字符约束：4 位英文字母与数字，CTC 解码时只在 {blank} ∪ 字母/数字列中选最大值 */
     private var letterIndices: IntArray = IntArray(0)
 
@@ -91,7 +99,15 @@ internal object OcrEngineManager {
 
     private fun engineDir(context: Context): File = File(context.filesDir, "ocr_engine")
 
-    private fun primaryAbi(): String = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+    private fun primaryAbi(): String {
+        val abis = Build.SUPPORTED_ABIS
+        // SUPPORTED_ABIS 含 x86_64/x86 说明 CPU 原生就是 x86（模拟器/特殊设备）：
+        // 必须用原生 x86 库，否则会下载 arm64 库经 libhoudini 转译执行，
+        // ONNX Runtime 在转译层下会出现 native 堆损坏（scudo corruption）直接崩溃
+        return abis.firstOrNull { it == "x86_64" || it == "x86" }
+            ?: abis.firstOrNull()
+            ?: "arm64-v8a"
+    }
 
     private fun ortSo(context: Context): File = File(engineDir(context), "libonnxruntime.so")
 
@@ -198,6 +214,7 @@ internal object OcrEngineManager {
 
     /** 卸载组件：删除引擎目录与已下载模型，回到未安装状态 */
     internal suspend fun uninstall(context: Context): Unit = withContext(Dispatchers.IO) {
+        idleReleaseJob?.cancel()
         sessionMutex.withLock {
             try {
                 session?.close()
@@ -269,9 +286,47 @@ internal object OcrEngineManager {
         }
     }
 
+    /**
+     * 下载单个资产并做 CRC32 完整性校验：每个资产旁托管同名 `<file>.crc` 文件
+     * （内容为 8 位小写十六进制 CRC32）。下载后先校验再落盘，不匹配自动重试一次，
+     * 仍失败则抛异常——避免损坏的 so/onnx 被当作就绪组件在运行时加载崩溃。
+     */
     private fun download(url: String, target: File) {
         Log.i(TAG, "download $url -> ${target.name}")
+        var lastError: Throwable? = null
+        repeat(2) { attempt ->
+            runCatching { downloadOnce(url, target) }
+                .onSuccess { return }
+                .onFailure { error ->
+                    Log.w(TAG, "download attempt ${attempt + 1} failed: ${target.name}", error)
+                    lastError = error
+                }
+        }
+        throw lastError ?: IllegalStateException("下载失败：${target.name}")
+    }
+
+    private fun downloadOnce(url: String, target: File) {
         val tmp = File(target.parentFile, target.name + ".tmp")
+        try {
+            fetchToFile(url, tmp)
+            val expected = fetchCrc("$url.crc")
+            val actual = crc32(tmp)
+            if (actual != expected) {
+                throw IllegalStateException(
+                    "校验失败：${target.name} 期望 $expected 实际 $actual"
+                )
+            }
+            if (target.exists()) target.delete()
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+                tmp.delete()
+            }
+        } finally {
+            if (tmp.exists() && tmp.absolutePath != target.absolutePath) tmp.delete()
+        }
+    }
+
+    private fun fetchToFile(url: String, target: File) {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 15000
@@ -282,18 +337,43 @@ internal object OcrEngineManager {
                 throw IllegalStateException("HTTP ${connection.responseCode}")
             }
             connection.inputStream.use { input ->
-                FileOutputStream(tmp).use { output -> input.copyTo(output, 1 shl 16) }
+                FileOutputStream(target).use { output -> input.copyTo(output, 1 shl 16) }
             }
-            if (tmp.length() <= 0L) throw IllegalStateException("下载内容为空")
-            if (target.exists()) target.delete()
-            if (!tmp.renameTo(target)) {
-                tmp.copyTo(target, overwrite = true)
-                tmp.delete()
-            }
+            if (target.length() <= 0L) throw IllegalStateException("下载内容为空")
         } finally {
             connection.disconnect()
-            if (tmp.exists() && !tmp.renameTo(target)) tmp.delete()
         }
+    }
+
+    /** 拉取 `<file>.crc` 侧车文件并解析为无符号 CRC32 值 */
+    private fun fetchCrc(url: String): Long {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            connection.instanceFollowRedirects = true
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("校验文件缺失：HTTP ${connection.responseCode}")
+            }
+            val text = connection.inputStream.use { it.readBytes().decodeToString() }.trim()
+            return text.toLong(16).let { if (it < 0) it + (1L shl 32) else it }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun crc32(file: File): Long {
+        val crc = java.util.zip.CRC32()
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                crc.update(buffer, 0, read)
+            }
+        }
+        return crc.value
     }
 
     // ---------- 原生库加载 ----------
@@ -443,11 +523,35 @@ internal object OcrEngineManager {
                     val environment = OrtEnvironment.getEnvironment()
                     val activeSession = ensureSession(environment, context, model, gpu)
                         ?: return@withLock OcrOutcome("", lastDevice)
-                    OcrOutcome(runInference(activeSession, imageBytes), lastDevice)
+                    val outcome = OcrOutcome(runInference(activeSession, imageBytes), lastDevice)
+                    outcome
                 } catch (error: Throwable) {
                     Log.w(TAG, "local recognize failed", error)
                     OcrOutcome("", lastDevice)
                 }
+            }.also { scheduleIdleRelease(context) }
+        }
+    }
+
+    /**
+     * 识别完成后安排闲置释放：60 秒内无新的识别请求则关闭 ONNX 会话，
+     * 释放模型权重与推理 arena 占用的 native 内存（新模型约 50-70MB）。
+     * 下次识别会在 IO 线程自动重建会话（数百毫秒，无感知）。
+     */
+    private fun scheduleIdleRelease(context: Context) {
+        val scope = (context.applicationContext as? com.xiaomanjun.sleepdownschedule.CourseScheduleApp)
+            ?.applicationScope ?: return
+        idleReleaseJob?.cancel()
+        idleReleaseJob = scope.launch {
+            delay(IdleReleaseDelayMillis)
+            sessionMutex.withLock {
+                if (session == null) return@withLock
+                runCatching { session?.close() }
+                session = null
+                sessionKey = null
+                charset = emptyList()
+                letterIndices = IntArray(0)
+                Log.i(TAG, "idle ONNX session released")
             }
         }
     }
@@ -465,7 +569,10 @@ internal object OcrEngineManager {
         val definition = parseCharset(charsetFile(context, model)) ?: return null
         val path = onnxFile(context, model).absolutePath
         var usedNnapi = false
-        session = if (gpu) {
+        // 模拟器没有真实的 NNAPI 硬件驱动：CPU_DISABLED 会让 NNAPI EP 在 native 层
+        // 直接 abort（Java 捕获不到），必须预先排除
+        val nnapiCapable = gpu && !isEmulator()
+        session = if (nnapiCapable) {
             val options = OrtSession.SessionOptions()
             val created = try {
                 // 禁用 NNAPI 的 CPU 参考后端：设备没有 GPU/NPU 驱动时这里会直接失败，
@@ -503,6 +610,31 @@ internal object OcrEngineManager {
 
     private fun Char.isAsciiAlnum(): Boolean =
         this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
+
+    /**
+     * 模拟器/通用系统镜像无 NNAPI 硬件后端，对它们启用 NNAPI 会在 native abort。
+     * 注意部分模拟器（如 MuMu）会伪装成真机的 model/fingerprint，特征匹配不到，
+     * 因此额外检查 qemu 系统属性与 CPU 架构：x86/x86_64 只出现在模拟器和极少数
+     * 已绝迹的平板上，直接排除 NNAPI。
+     */
+    private fun isEmulator(): Boolean {
+        if (Build.HARDWARE in setOf("ranchu", "goldfish") ||
+            Build.FINGERPRINT.startsWith("generic") ||
+            Build.PRODUCT.startsWith("sdk_gphone") ||
+            Build.MODEL.contains("Emulator", ignoreCase = true) ||
+            Build.MODEL.contains("Android SDK", ignoreCase = true)
+        ) return true
+        // MuMu 等伪装模拟器：qemu 属性暴露底层虚拟化
+        runCatching {
+            val sp = Class.forName("android.os.SystemProperties")
+            val get = sp.getMethod("get", String::class.java)
+            if ((get.invoke(null, "ro.kernel.qemu") as? String) == "1" ||
+                (get.invoke(null, "ro.boot.qemu") as? String) == "1"
+            ) return true
+        }
+        // 模拟器镜像的首选 ABI 几乎都是 x86 家族
+        return primaryAbi().startsWith("x86")
+    }
 
     @Serializable
     private data class CharsetDef(

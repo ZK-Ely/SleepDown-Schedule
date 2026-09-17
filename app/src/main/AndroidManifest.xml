@@ -260,6 +260,10 @@
         <receiver android:name=".CourseAlarmReceiver" android:exported="false" />
         <receiver android:name=".LiveUpdateActionReceiver" android:exported="false" />
         <service
+            android:name=".feature.importing.special.OcrService"
+            android:exported="false"
+            android:process=":ocr" />
+        <service
             android:name=".LiveUpdateForegroundService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
