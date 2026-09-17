@@ -19,8 +19,14 @@ import java.util.zip.GZIPInputStream
 object SpecialSyncOpenAiOcr {
 
     private const val PROMPT =
-        "识别图片中的图形验证码。验证码只包含字母和数字。" +
-            "只输出验证码字符本身，不要输出任何其他文字、标点或解释。"
+        "识别图片中的图形验证码。验证码固定为 4 位字符，只包含英文字母（大小写不限）和数字。" +
+            "只输出这 4 个字符，不要输出任何其他文字、标点或解释。"
+
+    /** 内置提示词 + 用户补充（验证码类型、干扰线等特征说明） */
+    private fun promptFor(config: SpecialSyncConfig): String {
+        val supplement = config.ocrPrompt.trim()
+        return if (supplement.isEmpty()) PROMPT else "$PROMPT\n验证码特征补充：$supplement"
+    }
 
     /** 返回识别出的字母数字（最多 6 位）；任何失败返回空串 */
     suspend fun recognize(bytes: ByteArray, config: SpecialSyncConfig): String =
@@ -62,7 +68,7 @@ object SpecialSyncOpenAiOcr {
                                         .put(
                                             JSONObject().apply {
                                                 put("type", "text")
-                                                put("text", PROMPT)
+                                                put("text", promptFor(config))
                                             }
                                         )
                                 )
@@ -78,7 +84,10 @@ object SpecialSyncOpenAiOcr {
                     ?.optJSONObject("message")
                     ?.optString("content")
                     .orEmpty()
-                content.filter { it.isLetterOrDigit() }.take(6)
+                // 初步筛选：验证码固定为 4 位英文字母与数字
+                content.filter {
+                    it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9'
+                }.take(4)
             }.getOrDefault("")
         }
 

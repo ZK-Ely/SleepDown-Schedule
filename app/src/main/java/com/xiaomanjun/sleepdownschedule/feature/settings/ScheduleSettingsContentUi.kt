@@ -252,6 +252,19 @@ fun ScheduleSettingsContent(
                         )
                         SettingsDivider()
                         SettingsToggleRow(
+                            title = "禁止应用关闭勿扰",
+                            subtitle = "勿扰开启时，实时活动通知仅显示\"勿扰已开启\"文字，不提供关闭按钮。",
+                            checked = livePreferences.dndCloseDisabled,
+                            backdrop = backdrop,
+                            enabled = notificationsEnabled && liveUpdateActionsEnabled,
+                            onCheckedChange = { enabled ->
+                                updateLivePreferences {
+                                    LiveUpdatePreferences.setDndCloseDisabled(appContext, enabled)
+                                }
+                            }
+                        )
+                        SettingsDivider()
+                        SettingsToggleRow(
                             title = "上课中实时活动",
                             subtitle = "开启后会用实时活动提醒距离最近课间还有多久",
                             checked = livePreferences.duringClassEnabled,

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_agenda_course_root"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:layout_marginBottom="4dp"
+    android:background="@drawable/widget_course_background_compact"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="9dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="9dp"
+    android:paddingBottom="4dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_agenda_course_time_start"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="none"
+            android:includeFontPadding="true"
+            android:maxLines="1"
+            android:textColor="#B4111111"
+            android:textSize="11.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_agenda_course_time_end"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="none"
+            android:includeFontPadding="true"
+            android:maxLines="1"
+            android:textColor="#77111111"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/widget_agenda_course_indicator"
+        android:layout_width="4dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="9dp"
+        android:layout_marginEnd="9dp"
+        android:contentDescription="@null"
+        android:src="@drawable/widget_course_indicator" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_agenda_course_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:includeFontPadding="true"
+            android:maxLines="1"
+            android:textColor="#FF111111"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_agenda_course_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:includeFontPadding="true"
+            android:maxLines="1"
+            android:textColor="#77111111"
+            android:textSize="10sp" />
+    </LinearLayout>
+</LinearLayout>

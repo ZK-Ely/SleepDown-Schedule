@@ -7,8 +7,14 @@ import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassMiuixEnabled
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
+import com.xiaomanjun.sleepdownschedule.domain.schedule.periodTimePickerBounds
+import com.xiaomanjun.sleepdownschedule.feature.importing.special.OcrEngineManager
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncCoordinator
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncOcrMode
@@ -56,6 +62,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
@@ -83,6 +90,10 @@ fun SpecialSyncSettingsScreen(
     // 手动验证码弹窗：OCR 三次失败后弹出；bytes 为 null 表示正在拉取新图
     var captchaDialogBytes by remember { mutableStateOf<ByteArray?>(null) }
     var captchaDialogVisible by remember { mutableStateOf(false) }
+    // 禁止时段滚轮编辑弹窗（复用节次时间的四列时间选择器）
+    var editingRangeIndex by remember { mutableStateOf(-1) }
+    var rangeStartMinute by remember { mutableStateOf(11 * 60) }
+    var rangeEndMinute by remember { mutableStateOf(14 * 60) }
 
     fun update(transform: (SpecialSyncConfig) -> SpecialSyncConfig) {
         config = transform(config)
@@ -166,6 +177,44 @@ fun SpecialSyncSettingsScreen(
             val result = coordinator.testOcrConnectivity()
             statusIsError = !result.startsWith("连通正常")
             statusMessage = "OCR 测试：$result"
+            busy = false
+        }
+    }
+
+    /** 下载本地识别引擎与所选模型（幂等，缺失什么下什么） */
+    fun downloadEngine() {
+        if (busy) return
+        scope.launch {
+            busy = true
+            statusMessage = null
+            statusIsError = false
+            statusMessage = "正在下载识别引擎与模型，请保持网络畅通…"
+            try {
+                OcrEngineManager.ensureReady(context, config.ocrLocalModel)
+                statusIsError = false
+                statusMessage = "识别引擎就绪，本地识别已可使用"
+            } catch (error: Throwable) {
+                statusIsError = true
+                statusMessage = "引擎下载失败：${error.message ?: "网络错误"}"
+            }
+            busy = false
+        }
+    }
+
+    /** 卸载已下载的识别组件（引擎 + 模型） */
+    fun uninstallEngine() {
+        if (busy) return
+        scope.launch {
+            busy = true
+            statusMessage = null
+            statusIsError = false
+            try {
+                OcrEngineManager.uninstall(context)
+                statusMessage = "已卸载识别组件"
+            } catch (error: Throwable) {
+                statusIsError = true
+                statusMessage = "卸载失败：${error.message ?: "未知错误"}"
+            }
             busy = false
         }
     }
@@ -268,61 +317,48 @@ fun SpecialSyncSettingsScreen(
                         if (config.autoRefreshEnabled) {
                             SettingsDivider()
                             SettingsTextFieldRow(
-                                title = "刷新间隔（分钟）",
-                                value = config.autoRefreshIntervalMinutes.toString(),
+                                title = "刷新间隔（小时）",
+                                value = run {
+                                    val hours = config.autoRefreshIntervalMinutes / 60f
+                                    if (hours == hours.toInt().toFloat()) hours.toInt().toString()
+                                    else "%.1f".format(hours)
+                                },
                                 onValueChange = { value ->
-                                    val minutes = value.filter { it.isDigit() }.take(4)
-                                        .toIntOrNull()?.coerceIn(5, 1440) ?: 5
-                                    update { it.copy(autoRefreshIntervalMinutes = minutes) }
+                                    val hours = value.filter { it.isDigit() || it == '.' }
+                                        .toFloatOrNull()?.coerceIn(0.1f, 24f) ?: 1f
+                                    update {
+                                        it.copy(
+                                            autoRefreshIntervalMinutes =
+                                            (hours * 60).toInt().coerceAtLeast(5)
+                                        )
+                                    }
                                 },
                                 keyboardType = KeyboardType.Number,
                                 enabled = !busy,
-                                placeholder = "60"
+                                placeholder = "1"
                             )
                             config.forbiddenRanges.forEachIndexed { index, raw ->
                                 val parts = raw.split("-")
                                 val start = parts.getOrNull(0)?.trim()?.ifBlank { "11:00" } ?: "11:00"
                                 val end = parts.getOrNull(1)?.trim()?.ifBlank { "14:00" } ?: "14:00"
                                 SettingsDivider()
-                                SettingsTextFieldRow(
-                                    title = "禁止时段${index + 1} · 开始",
-                                    value = start,
-                                    onValueChange = { value ->
-                                        update { withRangeAt(config, index, value, end) }
-                                    },
-                                    enabled = !busy
-                                )
-                                SettingsTextFieldRow(
-                                    title = "禁止时段${index + 1} · 结束",
-                                    value = end,
-                                    onValueChange = { value ->
-                                        update { withRangeAt(config, index, start, value) }
-                                    },
-                                    enabled = !busy
-                                )
                                 SettingsActionRow(
-                                    title = "删除禁止时段${index + 1}",
-                                    subtitle = "移除后该时段内也会正常自动刷新",
-                                    buttonText = "删除",
-                                    iconRes = R.drawable.ic_trash,
+                                    title = "禁止时段${index + 1}",
+                                    subtitle = "$start - $end · 点按编辑时间",
+                                    buttonText = "编辑",
+                                    iconRes = R.drawable.ic_agent_period,
                                     backdrop = backdrop,
-                                    destructive = true,
                                     onClick = {
-                                        update {
-                                            it.copy(
-                                                forbiddenRanges =
-                                                it.forbiddenRanges.toMutableList().apply {
-                                                    if (index < size) removeAt(index)
-                                                }
-                                            )
-                                        }
+                                        rangeStartMinute = parseHhmmToMinutes(start) ?: (11 * 60)
+                                        rangeEndMinute = parseHhmmToMinutes(end) ?: (14 * 60)
+                                        editingRangeIndex = index
                                     }
                                 )
                             }
                             SettingsDivider()
                             SettingsActionRow(
                                 title = "添加禁止时间段",
-                                subtitle = "在设定的时段内不会执行自动刷新（支持跨零点）",
+                                subtitle = "在设定的时段内不会执行自动刷新（跨零点请拆成两条）",
                                 buttonText = "添加",
                                 iconRes = R.drawable.ic_add_course,
                                 backdrop = backdrop,
@@ -364,6 +400,78 @@ fun SpecialSyncSettingsScreen(
                                 }
                             }
                         )
+                        if (config.ocrMode != SpecialSyncOcrMode.OPENAI) {
+                            SettingsDivider()
+                            SleepDownLiquidDropdownPreference(
+                                items = listOf(
+                                    "新模型（识别更准，约 52MB）",
+                                    "旧模型（更小巧，约 13MB）",
+                                    "ML Kit 模型（约 11MB）"
+                                ),
+                                selectedIndex = when (config.ocrLocalModel) {
+                                    SpecialSyncOcrMode.LocalModelOld -> 1
+                                    SpecialSyncOcrMode.LocalModelMlkit -> 2
+                                    else -> 0
+                                },
+                                title = "本地识别模型",
+                                summary = "模型与识别引擎在线下载，仅识别 4 位英文字母与数字",
+                                backdrop = backdrop,
+                                config = state.config,
+                                modifier = Modifier.fillMaxWidth(),
+                                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                                maxHeight = 240.dp,
+                                onExpandedChange = {},
+                                onSelectedIndexChange = { index ->
+                                    update {
+                                        it.copy(
+                                            ocrLocalModel = when (index) {
+                                                1 -> SpecialSyncOcrMode.LocalModelOld
+                                                2 -> SpecialSyncOcrMode.LocalModelMlkit
+                                                else -> SpecialSyncOcrMode.LocalModelNew
+                                            }
+                                        )
+                                    }
+                                }
+                            )
+                            if (config.ocrLocalModel != SpecialSyncOcrMode.LocalModelMlkit) {
+                                SettingsDivider()
+                                SettingsToggleRow(
+                                    title = "GPU 加速（实验性）",
+                                    subtitle = "通过 NNAPI 使用 GPU/NPU 推理；不支持时自动回退 CPU，识别更快但兼容性因设备而异",
+                                    checked = config.ocrGpuEnabled,
+                                    backdrop = backdrop,
+                                    enabled = !busy,
+                                    onCheckedChange = { value ->
+                                        update { it.copy(ocrGpuEnabled = value) }
+                                    }
+                                )
+                            }
+                            SettingsDivider()
+                            val componentReady = remember(config.ocrLocalModel, busy) {
+                                OcrEngineManager.isComponentReady(context, config.ocrLocalModel)
+                            }
+                            val installedSize = remember(config.ocrLocalModel, busy) {
+                                val bytes = OcrEngineManager.installedSizeBytes(context)
+                                if (bytes > 0L) "约 ${bytes / (1024 * 1024)}MB" else "未安装"
+                            }
+                            SettingsActionRow(
+                                title = when {
+                                    componentReady -> "识别组件已就绪"
+                                    else -> "下载识别引擎"
+                                },
+                                subtitle = when {
+                                    componentReady -> "本地识别已可使用，已占用 ${installedSize}空间；更换模型后点「下载」补齐缺失组件"
+                                    else -> "首次使用需在线下载引擎与模型（${OcrEngineManager.pendingSizeHint(context, config.ocrLocalModel)}），仅此一次"
+                                },
+                                buttonText = if (componentReady) "卸载" else "下载",
+                                iconRes = if (componentReady) R.drawable.ic_trash else R.drawable.ic_download,
+                                backdrop = backdrop,
+                                destructive = componentReady,
+                                onClick = {
+                                    if (componentReady) uninstallEngine() else downloadEngine()
+                                }
+                            )
+                        }
                         if (config.ocrMode == SpecialSyncOcrMode.OPENAI) {
                             SettingsDivider()
                             SettingsTextFieldRow(
@@ -397,21 +505,46 @@ fun SpecialSyncSettingsScreen(
                                 placeholder = "sk-…"
                             )
                             SettingsDivider()
-                            SettingsActionRow(
-                                title = "测试连通性",
-                                subtitle = "拉取一张验证码并调用识别接口验证配置",
-                                buttonText = "测试",
-                                iconRes = R.drawable.ic_check,
-                                backdrop = backdrop,
-                                onClick = { testOcrConnectivity() }
+                            SettingsTextFieldRow(
+                                title = "识别提示词",
+                                value = config.ocrPrompt,
+                                onValueChange = { value ->
+                                    update { it.copy(ocrPrompt = value) }
+                                },
+                                enabled = !busy,
+                                placeholder = "可选，如：4位数字、含干扰线"
                             )
                         }
+                        SettingsDivider()
+                        SettingsActionRow(
+                            title = "测试连通性",
+                            subtitle = if (config.ocrMode == SpecialSyncOcrMode.OPENAI) {
+                                "拉取一张验证码并调用识别接口验证配置"
+                            } else {
+                                "拉取一张验证码并用所选本地模型识别验证"
+                            },
+                            buttonText = "测试",
+                            iconRes = R.drawable.ic_check,
+                            backdrop = backdrop,
+                            onClick = { testOcrConnectivity() }
+                        )
                     }
                 }
             }
             item(key = "special-sync-action") {
                 GlassPreferenceSection("同步") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                        SettingsToggleRow(
+                            title = "保留现有节次时间表",
+                            subtitle = "同步只更新课程，不改动本课表已配置的节次时间（关闭则采用教务时间）",
+                            checked = config.keepPeriods,
+                            backdrop = backdrop,
+                            enabled = !busy,
+                            onCheckedChange = { value ->
+                                update { it.copy(keepPeriods = value) }
+                            }
+                        )
+                        SettingsDivider()
                         SettingsActionRow(
                             title = "立即同步",
                             subtitle = "登录教务系统并整体替换「${SpecialSyncCoordinator.ScheduleName}」课表",
@@ -469,6 +602,70 @@ fun SpecialSyncSettingsScreen(
             onDismiss = { captchaDialogVisible = false }
         )
     }
+
+    // 禁止时段滚轮编辑弹窗：与节次时间编辑同一套四列时间选择器
+    val rangePickerBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    SleepDownPickerDialog(
+        show = editingRangeIndex >= 0,
+        title = "编辑禁止时段",
+        onDismissRequest = { editingRangeIndex = -1 },
+        backdrop = rangePickerBackdrop,
+        config = state.config,
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+    ) {
+        ConstrainedPeriodTimePickers(
+            startMinute = rangeStartMinute,
+            endMinute = rangeEndMinute,
+            bounds = periodTimePickerBounds(null, null),
+            onSelectionChange = { selection ->
+                rangeStartMinute = selection.startMinute
+                rangeEndMinute = selection.endMinute
+            },
+            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(fontSize = 22.sp),
+            showSectionLabels = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
+        ) {
+            QuickSheetLiquidAction(
+                "取消", true, rangePickerBackdrop, state.config,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) { editingRangeIndex = -1 }
+            QuickSheetLiquidAction(
+                "删除", true, rangePickerBackdrop, state.config, destructive = true,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                val index = editingRangeIndex
+                if (index >= 0) {
+                    update {
+                        it.copy(
+                            forbiddenRanges = it.forbiddenRanges.toMutableList().apply {
+                                if (index < size) removeAt(index)
+                            }
+                        )
+                    }
+                }
+                editingRangeIndex = -1
+            }
+            QuickSheetLiquidAction(
+                "确定", true, rangePickerBackdrop, state.config,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                val index = editingRangeIndex
+                if (index >= 0) {
+                    val startText = "%02d:%02d".format(rangeStartMinute / 60, rangeStartMinute % 60)
+                    val endText = "%02d:%02d".format(rangeEndMinute / 60, rangeEndMinute % 60)
+                    update { withRangeAt(it, index, startText, endText) }
+                }
+                editingRangeIndex = -1
+            }
+        }
+    }
 }
 
 private fun withRangeAt(
@@ -491,6 +688,15 @@ private fun normalizeHm(value: String): String? {
     val minute = match.groupValues[2].toInt()
     if (hour !in 0..23 || minute !in 0..59) return null
     return "%02d:%02d".format(hour, minute)
+}
+
+/** "11:00" → 660；非法返回 null */
+private fun parseHhmmToMinutes(value: String): Int? {
+    val match = Regex("(\\d{1,2}):(\\d{2})").find(value.trim()) ?: return null
+    val hour = match.groupValues[1].toInt()
+    val minute = match.groupValues[2].toInt()
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return hour * 60 + minute
 }
 
 /**

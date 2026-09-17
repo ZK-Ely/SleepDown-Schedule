@@ -7,7 +7,8 @@ internal data class LiveUpdatePreferencesSnapshot(
     val duringClassEnabled: Boolean,
     val breakStatusEnabled: Boolean,
     val tomorrowReminderEnabled: Boolean,
-    val tomorrowReminderTime: LocalTime
+    val tomorrowReminderTime: LocalTime,
+    val dndCloseDisabled: Boolean
 )
 
 /** Global realtime-activity preferences that do not belong to one schedule profile. */
@@ -17,6 +18,7 @@ internal object LiveUpdatePreferences {
     private const val BreakStatusKey = "break_status_enabled"
     private const val TomorrowReminderKey = "tomorrow_reminder_enabled"
     private const val TomorrowReminderTimeKey = "tomorrow_reminder_time"
+    private const val DndCloseDisabledKey = "dnd_close_disabled"
     private val DefaultTomorrowReminderTime = LocalTime.of(22, 0)
 
     fun read(context: Context): LiveUpdatePreferencesSnapshot {
@@ -29,9 +31,17 @@ internal object LiveUpdatePreferences {
                 TomorrowReminderTimeKey,
                 DefaultTomorrowReminderTime.toString()
             )?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-                ?: DefaultTomorrowReminderTime
+                ?: DefaultTomorrowReminderTime,
+            dndCloseDisabled = preferences.getBoolean(DndCloseDisabledKey, false)
         )
     }
+
+    fun setDndCloseDisabled(context: Context, disabled: Boolean) {
+        preferences(context).edit().putBoolean(DndCloseDisabledKey, disabled).apply()
+    }
+
+    fun isDndCloseDisabled(context: Context): Boolean =
+        preferences(context).getBoolean(DndCloseDisabledKey, false)
 
     fun setDuringClassEnabled(context: Context, enabled: Boolean) {
         preferences(context).edit().putBoolean(DuringClassKey, enabled).apply()

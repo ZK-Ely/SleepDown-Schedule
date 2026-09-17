@@ -25,20 +25,31 @@ data class SpecialSyncConfig(
     val autoRefreshIntervalMinutes: Int = 60,
     /** 禁止自动刷新时间段，元素格式 "HH:mm-HH:mm"（支持跨午夜，如 22:00-06:00） */
     val forbiddenRanges: List<String> = emptyList(),
-    /** 验证码识别方式："local"（ML Kit 本地）或 "openai"（OpenAI 兼容视觉接口） */
+    /** 验证码识别方式："local"（ddddocr 本地引擎）或 "openai"（OpenAI 兼容视觉接口） */
     val ocrMode: String = SpecialSyncOcrMode.LOCAL,
+    /** 本地识别模型："new"（新模型，更准）或 "old"（旧模型，更小） */
+    val ocrLocalModel: String = SpecialSyncOcrMode.LocalModelNew,
+    /** 本地识别 GPU（NNAPI）加速开关；开启后推理失败会自动回退 CPU */
+    val ocrGpuEnabled: Boolean = false,
     /** OpenAI 兼容接口地址（chat/completions 拼接在该 base 之后） */
     val ocrApiBaseUrl: String = SpecialSyncOcrMode.DefaultOpenAiBaseUrl,
     /** 视觉模型名称，如 Qwen/Qwen2-VL-7B-Instruct */
     val ocrModelName: String = SpecialSyncOcrMode.DefaultOcrModel,
     /** OpenAI 兼容接口 API Key（仅保存在本机） */
-    val ocrApiKey: String = ""
+    val ocrApiKey: String = "",
+    /** OpenAI 兼容识别的自定义提示词（描述验证码类型、干扰线等），空则仅用内置提示词 */
+    val ocrPrompt: String = "",
+    /** 同步时保留该课表现有节次时间表（不覆盖用户配置的作息） */
+    val keepPeriods: Boolean = true
 )
 
 /** 验证码识别方式取值与默认值 */
 object SpecialSyncOcrMode {
     const val LOCAL = "local"
     const val OPENAI = "openai"
+    const val LocalModelNew = "new"
+    const val LocalModelOld = "old"
+    const val LocalModelMlkit = "mlkit"
     const val DefaultOpenAiBaseUrl = "https://api.siliconflow.cn/v1"
     const val DefaultOcrModel = "PaddlePaddle/PaddleOCR-VL-1.5"
 
@@ -68,12 +79,16 @@ object SpecialSyncStore {
             forbiddenRanges = rangesRaw.split(RANGE_SEPARATOR)
                 .filter { it.isNotBlank() },
             ocrMode = p.getString("ocrMode", null) ?: SpecialSyncOcrMode.LOCAL,
+            ocrLocalModel = p.getString("ocrLocalModel", null) ?: SpecialSyncOcrMode.LocalModelNew,
+            ocrGpuEnabled = p.getBoolean("ocrGpuEnabled", false),
             ocrApiBaseUrl = p.getString("ocrApiBaseUrl", null) ?: SpecialSyncOcrMode.DefaultOpenAiBaseUrl,
             // 已保存旧默认模型（用户未手动改过）的设备，随本次默认值迁移
             ocrModelName = p.getString("ocrModelName", null)
                 ?.takeUnless { it.isBlank() || it == SpecialSyncOcrMode.LegacyDefaultOcrModel }
                 ?: SpecialSyncOcrMode.DefaultOcrModel,
-            ocrApiKey = p.getString("ocrApiKey", "") ?: ""
+            ocrApiKey = p.getString("ocrApiKey", "") ?: "",
+            ocrPrompt = p.getString("ocrPrompt", "") ?: "",
+            keepPeriods = p.getBoolean("keepPeriods", true)
         )
     }
 
@@ -91,9 +106,13 @@ object SpecialSyncStore {
             .putInt("autoRefreshIntervalMinutes", config.autoRefreshIntervalMinutes)
             .putString("forbiddenRanges", config.forbiddenRanges.joinToString(RANGE_SEPARATOR))
             .putString("ocrMode", config.ocrMode)
+            .putString("ocrLocalModel", config.ocrLocalModel)
+            .putBoolean("ocrGpuEnabled", config.ocrGpuEnabled)
             .putString("ocrApiBaseUrl", config.ocrApiBaseUrl)
             .putString("ocrModelName", config.ocrModelName)
             .putString("ocrApiKey", config.ocrApiKey)
+            .putString("ocrPrompt", config.ocrPrompt)
+            .putBoolean("keepPeriods", config.keepPeriods)
             .apply()
     }
 }

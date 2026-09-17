@@ -40,6 +40,19 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    packaging {
+        // OCR 引擎原生库不打包，运行时从 GitHub 下载后 System.load 加载：
+        // ONNX Runtime（ddddocr 推理引擎）与 ML Kit 的 OCR pipeline 同样剥离
+        jniLibs {
+            excludes += setOf(
+                "**/libonnxruntime.so",
+                "**/libonnxruntime4j_jni.so",
+                "**/libmlkit_google_ocr_pipeline.so"
+            )
+        }
+        // ML Kit 的识别模型不在 APK 内（本地改造 AAR 已剔除 assets），运行时下载
+    }
+
     lint {
         disable += setOf(
             "NullSafeMutableLiveData",
@@ -221,8 +234,22 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
-    // Special sync: bundled on-device OCR for the education-system login captcha.
-    implementation("com.google.mlkit:text-recognition:16.0.0")
+    // Special sync: on-device OCR (ddddocr models on ONNX Runtime). Only the Java
+    // bindings ship inside the APK; native libs and models are downloaded at runtime
+    // from GitHub, so the bundled .so files are stripped here.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    // Optional bundled OCR engine (ML Kit latin). The stock AAR ships the OCR models
+    // inside its assets, which we keep out of the APK and download at runtime instead;
+    // libs/text-recognition-noassets.aar is the stock artifact minus its assets/, with
+    // its transitive dependencies listed manually below.
+    implementation(files("libs/text-recognition-noassets.aar"))
+    implementation("com.google.android.gms:play-services-base:18.1.0")
+    implementation("com.google.android.gms:play-services-basement:18.1.0")
+    implementation("com.google.android.gms:play-services-tasks:18.0.2")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.mlkit:common:18.8.0")
+    implementation("com.google.mlkit:vision-common:17.3.0")
+    implementation("com.google.mlkit:text-recognition-bundled-common:16.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.6.1")

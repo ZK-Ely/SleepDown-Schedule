@@ -74,6 +74,10 @@ class SpecialSyncCoordinator(private val context: Context) {
             if (config.ocrApiKey.isBlank()) return "请先填写 API Key"
             if (config.ocrModelName.isBlank()) return "请先填写模型名称"
             if (config.ocrApiBaseUrl.isBlank()) return "请先填写请求地址"
+        } else {
+            if (!OcrEngineManager.isComponentReady(context, config.ocrLocalModel)) {
+                return "本地识别组件尚未下载，请先在下方下载引擎与模型"
+            }
         }
         api.attach(context)
         val bytes = try {
@@ -83,11 +87,11 @@ class SpecialSyncCoordinator(private val context: Context) {
             return "验证码获取失败：${error.message ?: "网络错误"}"
         }
         return try {
-            val code = SpecialSyncCaptchaOcr.recognize(bytes, config)
-            if (code.isBlank()) {
-                "接口连通但未识别出文字，请检查模型是否支持图片输入"
+            val outcome = SpecialSyncCaptchaOcr.recognize(context, bytes, config)
+            if (outcome.text.isBlank()) {
+                "识别结果为空，可重试或改用手动输入验证码"
             } else {
-                "连通正常，识别结果：$code"
+                "连通正常，识别结果：${outcome.text}（4位字母数字 · 加速设备：${outcome.device}）"
             }
         } catch (error: Throwable) {
             Log.w(TAG, "testOcrConnectivity ocr failed", error)
@@ -175,7 +179,17 @@ class SpecialSyncCoordinator(private val context: Context) {
             return@withContext SyncResult.Failure("创建特殊课表失败：${error.message ?: "未知错误"}")
         }
         try {
-            val draft = SpecialSyncMapper.buildDraft(items, scheduleId)
+            // 「保留现有节次时间表」开启时沿用课表现有作息，不覆盖；关闭时用教务真实时间推导
+            val existingPeriods = if (store.keepPeriods) {
+                repository.periodsForSchedule(scheduleId).takeIf { it.isNotEmpty() }
+            } else {
+                null
+            }
+            val draft = SpecialSyncMapper.buildDraft(
+                items,
+                scheduleId,
+                existingPeriods = existingPeriods
+            )
             repository.importDraft(draft, createNewSchedule = false)
         } catch (error: Throwable) {
             Log.w(TAG, "importDraft failed", error)
@@ -202,7 +216,7 @@ class SpecialSyncCoordinator(private val context: Context) {
     private suspend fun autoLoginAttempt(username: String, password: String, config: SpecialSyncConfig): AttemptOutcome {
         return try {
             val img = api.getCaptcha()
-            val code = SpecialSyncCaptchaOcr.recognize(img, config)
+            val code = SpecialSyncCaptchaOcr.recognize(context, img, config).text
             if (code.isEmpty()) return AttemptOutcome.CaptchaError("验证码识别为空")
             val outcome = attemptLogin(username, password, code)
             when {

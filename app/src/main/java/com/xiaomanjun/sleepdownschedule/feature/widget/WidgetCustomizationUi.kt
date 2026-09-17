@@ -152,6 +152,7 @@ fun WidgetCustomizationScreen(
             WidgetAppearanceVariant.TODAY_TOMORROW -> TodayTomorrowWidgetProvider::class.java
             WidgetAppearanceVariant.WEEK_SCHEDULE -> WeekScheduleWidgetProvider::class.java
             WidgetAppearanceVariant.TODAY_ASSISTANT -> TodayAssistantWidgetProvider::class.java
+            WidgetAppearanceVariant.AGENDA -> AgendaWidgetProvider::class.java
         }
         return ComponentName(context, provider)
     }
@@ -183,6 +184,8 @@ fun WidgetCustomizationScreen(
                 WeekScheduleWidgetRenderer.refresh(context, manager, ids)
             WidgetAppearanceVariant.TODAY_ASSISTANT ->
                 TodayAssistantWidgetRenderer.refresh(context, manager, ids)
+            WidgetAppearanceVariant.AGENDA ->
+                AgendaWidgetRenderer.refresh(context, manager, ids)
         }
     }
 
@@ -589,6 +592,8 @@ private fun WidgetRemoteViewsPreview(
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
+    // 渲染/应用失败时把异常直接显示在预览上，便于现场定位（正常时为 null）
+    var renderError by remember(type) { mutableStateOf<String?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
     val latestOnRemoteViewsReady = rememberUpdatedState(onRemoteViewsReady)
     LaunchedEffect(type, appearance, state, transparentBackground) {
@@ -644,16 +649,25 @@ private fun WidgetRemoteViewsPreview(
                             renderSize
                         )
                     }
+                    WidgetAppearanceVariant.AGENDA ->
+                        AgendaWidgetRenderer.buildViews(
+                            appContext,
+                            state,
+                            appearance,
+                            renderSize
+                        )
                 }
                 if (transparentBackground) {
                     val root = when (type) {
                         WidgetAppearanceVariant.TODAY_ASSISTANT -> R.id.widget_agent_root
                         WidgetAppearanceVariant.TODAY_TOMORROW -> R.id.widget_tt_root
+                        WidgetAppearanceVariant.AGENDA -> R.id.widget_agenda_root
                         else -> R.id.widget_root
                     }
                     val background = when (type) {
                         WidgetAppearanceVariant.TODAY_ASSISTANT -> R.id.widget_agent_background_image
                         WidgetAppearanceVariant.TODAY_TOMORROW -> R.id.widget_tt_background_image
+                        WidgetAppearanceVariant.AGENDA -> R.id.widget_agenda_background_image
                         else -> R.id.widget_background_image
                     }
                     views.setInt(root, "setBackgroundColor", android.graphics.Color.TRANSPARENT)
@@ -667,9 +681,11 @@ private fun WidgetRemoteViewsPreview(
         rendered.exceptionOrNull()?.let { if (it is CancellationException) throw it }
         rendered.onSuccess { (views, _) ->
             remoteViews = views
+            renderError = null
             latestOnRemoteViewsReady.value(views)
             latestOnReady.value()
         }.onFailure {
+            renderError = "${it.javaClass.simpleName}: ${it.message}"
             android.util.Log.e("WidgetPreview", "Failed to render ${type.key} preview", it)
         }
     }
@@ -720,7 +736,9 @@ private fun WidgetRemoteViewsPreview(
                             )
                         }
                         host.tag = remote
+                        renderError = null
                     }.onFailure {
+                        renderError = "${it.javaClass.simpleName}: ${it.message}"
                         android.util.Log.e("WidgetPreview", "Failed to apply ${type.key} preview", it)
                     }
                 }
@@ -732,6 +750,17 @@ private fun WidgetRemoteViewsPreview(
                     scaleY = scale
                 }
         )
+        renderError?.let { message ->
+            Text(
+                text = message,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 8
+            )
+        }
     }
 }
 
@@ -833,7 +862,8 @@ private fun WidgetWallpaperEditor(
             WidgetAppearanceVariant.COURSES_LARGE,
             WidgetAppearanceVariant.TODAY_TOMORROW,
             WidgetAppearanceVariant.WEEK_SCHEDULE,
-            WidgetAppearanceVariant.TODAY_ASSISTANT -> 336.dp
+            WidgetAppearanceVariant.TODAY_ASSISTANT,
+            WidgetAppearanceVariant.AGENDA -> 336.dp
         }
         val desiredWidth = minOf(
             maxWidth * widthFraction,

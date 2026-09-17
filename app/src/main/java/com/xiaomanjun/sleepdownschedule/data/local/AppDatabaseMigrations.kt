@@ -616,6 +616,15 @@ private val MIGRATION_38_39 = object : Migration(38, 39) {
     }
 }
 
+private val MIGRATION_39_40 = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 每周第一天（1=周一 … 7=周日），学期周次切分锚点
+        if (!db.hasColumn("schedule_config", "weekFirstDay")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekFirstDay INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -654,7 +663,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_35_36,
     MIGRATION_36_37,
     MIGRATION_37_38,
-    MIGRATION_38_39
+    MIGRATION_38_39,
+    MIGRATION_39_40
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -855,6 +865,7 @@ private fun repairScheduleConfigTable(db: SQLiteDatabase) {
     ensureSqliteColumn(db, "schedule_config", "noonPeriodCount", "INTEGER NOT NULL DEFAULT 0")
     ensureSqliteColumn(db, "schedule_config", "afternoonPeriodCount", "INTEGER NOT NULL DEFAULT 4")
     ensureSqliteColumn(db, "schedule_config", "eveningPeriodCount", "INTEGER NOT NULL DEFAULT 4")
+    ensureSqliteColumn(db, "schedule_config", "weekFirstDay", "INTEGER NOT NULL DEFAULT 1")
     db.execSQL(scheduleConfigCreateSql("schedule_config_room_fix"))
     db.execSQL(
         """
@@ -955,7 +966,8 @@ private fun scheduleConfigCreateSql(table: String): String =
         morningPeriodCount INTEGER NOT NULL DEFAULT 4,
         noonPeriodCount INTEGER NOT NULL DEFAULT 0,
         afternoonPeriodCount INTEGER NOT NULL DEFAULT 4,
-        eveningPeriodCount INTEGER NOT NULL DEFAULT 4
+        eveningPeriodCount INTEGER NOT NULL DEFAULT 4,
+        weekFirstDay INTEGER NOT NULL DEFAULT 1
     )
     """.trimIndent()
 

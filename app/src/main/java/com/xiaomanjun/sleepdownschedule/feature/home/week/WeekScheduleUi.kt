@@ -129,12 +129,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
@@ -1684,11 +1688,16 @@ private fun renderedWeekSegments(
             }
             return@forEachIndexed
         }
-        // 冲突组：堆叠卡——组内每门课渲染最早一段，focus 课程排最前（zIndex 最高、完整可见）
+        // 冲突组：堆叠卡——组内每门课渲染最早一段，focus 课程排最前（zIndex 最高、完整可见）；
+        // 其余按「有教室优先 → 跨度长的优先 → 起始节次早的优先」排列，保证顶卡是有教室的长课
         val perCourseSegments = group.segments
             .groupBy { it.course.id }
             .map { (_, list) -> list.minByOrNull { s -> s.startPosition }!! }
-            .sortedBy { it.startPosition }
+            .sortedWith(
+                compareByDescending<WeekCourseSegment> { !it.course.location.isNullOrBlank() }
+                    .thenByDescending { it.endPosition - it.startPosition + 1 }
+                    .thenBy { it.startPosition }
+            )
         val ordered = buildList {
             val focus = conflictFocusCourseId?.let { id ->
                 perCourseSegments.firstOrNull { it.course.id == id }
@@ -1754,10 +1763,11 @@ fun WeekDayColumn(
     val conflictGroups = remember(courses, periodIndexes, periods) {
         buildWeekConflictGroups(courses, periodIndexes, periods)
     }
-    // 当前展开的冲突组：groupIndex + 顶卡 bounds；null 表示无展开浮层
+    // 当前展开的冲突组：groupIndex + 被点击卡 bounds + 该卡起始节次；null 表示无展开浮层
     var expandedConflictGroup by remember(courses, periods) {
-        mutableStateOf<Pair<Int, Rect>?>(null)
+        mutableStateOf<Triple<Int, Rect, Int>?>(null)
     }
+    val courseShortcuts = LocalCourseShortcuts.current
     val renderedSegments = remember(
         conflictGroups,
         conflictFocusCourseId,
@@ -1837,7 +1847,8 @@ fun WeekDayColumn(
                     // 折叠卡：点击（含气泡）展开浮层；浮层由 WeekDayColumn 统一渲染
                     conflictGroupCount = group.courses.size,
                     onExpandConflictGroup = { anchor ->
-                        expandedConflictGroup = groupIndex to anchor
+                        // 记录被点击卡自身的起始节次，作为浮层对齐的参考原点
+                        expandedConflictGroup = Triple(groupIndex, anchor, rendered.segment.startPosition)
                     },
                     editMode = editMode,
                     editWeek = editWeek,
@@ -1891,15 +1902,48 @@ fun WeekDayColumn(
             }
         }
         // 冲突折叠卡展开浮层：由本列统一渲染，点空白/返回键收起
-        expandedConflictGroup?.let { (groupIdx, anchor) ->
+        expandedConflictGroup?.let { (groupIdx, anchor, clickedStartRows) ->
             conflictGroups.getOrNull(groupIdx)?.let { group ->
+                // 展开卡高度保持各自折叠态；顶端与折叠前的网格位置分别对齐——
+                // 参考点 = 被点击卡自身的起始节次（点哪张卡，哪张就精确对齐自身原位）
+                val groupSegments = renderedSegments.filter { it.groupIndex == groupIdx }
+                val groupEntries: List<Triple<CourseEntity, Dp, Dp>> = groupSegments.map { rendered ->
+                    val seg = rendered.segment
+                    val exact = exactTimeWeekPlacement(seg.course, periods)
+                    val foldedHeight = if (exact != null) {
+                        (cardHeight * exact.heightRows).coerceAtLeast(1.dp)
+                    } else {
+                        (cardHeight * seg.span.toFloat() - 4.dp).coerceAtLeast(18.dp)
+                    }
+                    Triple(
+                        seg.course,
+                        foldedHeight,
+                        cardHeight * (seg.startPosition - clickedStartRows)
+                    )
+                }.distinctBy { it.first.id }
                 ConflictGroupExpandOverlay(
                     anchorBounds = anchor,
-                    courses = group.segments.map { it.course }.distinctBy { it.id },
+                    entries = groupEntries,
                     config = config,
-                    onCourseClick = { picked ->
+                    onCourseClick = { picked, sourceRect ->
                         expandedConflictGroup = null
-                        onCourseClick(picked, null)
+                        onCourseClick(picked, sourceRect)
+                    },
+                    onLongPress = { picked, sourceRect ->
+                        // 与课表卡长按一致：收起浮层并打开该课程的快捷操作菜单
+                        expandedConflictGroup = null
+                        if (sourceRect != null) {
+                            courseShortcuts?.open(
+                                CourseShortcutRequest(
+                                    course = picked,
+                                    week = editWeek,
+                                    bounds = sourceRect,
+                                    cornerPx = with(density) { 12.dp.toPx() },
+                                    pivotX = shortcutPivotX,
+                                    enterEditMode = onEnterEditMode
+                                )
+                            )
+                        }
                     },
                     onDismiss = { expandedConflictGroup = null }
                 )
@@ -3479,42 +3523,6 @@ fun WeekCourseBlock(
             }
             }
             }
-            if (conflictWarning && !editMode && !customTimeLocked) {
-                val pillTextColor =
-                    if (glassUsesLightStyle(config)) ComposeColor.Black else ComposeColor.White
-                GlassSurface(
-                    backdrop = activeCardBackdrop,
-                    config = config,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-4).dp)
-                        .size(width = 34.dp, height = 20.dp)
-                        .zIndex(8f),
-                    shape = Capsule(),
-                    tokens = GlassTokens.pill(intensity = 0.86f).copy(
-                        surfaceAlpha = 0.32f,
-                        shadowAlpha = 0.18f,
-                        innerShadowAlpha = 0.12f
-                    ),
-                    selected = true,
-                    onClick = {
-                        // 气泡与卡片主体一致：展开冲突浮层查看/选择组内课程
-                        if (conflictGroupCount > 1 && !currentEditMode) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onExpandConflictGroup(ownBoundsRef[0] ?: Rect.Zero)
-                        }
-                    }
-                ) {
-                    Text(
-                        text = if (conflictGroupCount > 1) "冲突$conflictGroupCount" else "冲突",
-                        modifier = Modifier.align(Alignment.Center),
-                        fontSize = 8.sp,
-                        lineHeight = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = pillTextColor
-                    )
-                }
-            }
             AnimatedVisibility(
                 visible = editMode,
                 modifier = Modifier
@@ -3664,33 +3672,44 @@ private fun scaledWeekText(value: TextUnit, fontScale: Float): TextUnit {
  * 冲突组折叠卡的展开浮层：在原卡旁侧（优先右侧，空间不足时左侧）横向铺开组内全部课程。
  * 每张迷你卡可点击查看详情；按返回键或点击浮层以外空白处由 Popup 的 onDismissRequest 收起。
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ConflictGroupExpandOverlay(
     anchorBounds: Rect?,
-    courses: List<CourseEntity>,
+    entries: List<Triple<CourseEntity, Dp, Dp>>,
     config: ScheduleConfigEntity,
-    onCourseClick: (CourseEntity) -> Unit,
+    onCourseClick: (CourseEntity, Rect?) -> Unit,
+    onLongPress: (CourseEntity, Rect?) -> Unit,
     onDismiss: () -> Unit
 ) {
     val density = LocalDensity.current
     val windowSize = currentWindowSizeDp()
-    val itemWidth = 112.dp
     val gap = 6.dp
     val margin = 8.dp
-    val itemWidthPx = with(density) { itemWidth.toPx() }
     val gapPx = with(density) { gap.toPx() }
     val marginPx = with(density) { margin.toPx() }
     val screenWidthPx = with(density) { windowSize.width.toPx() }
     val screenHeightPx = with(density) { windowSize.height.toPx() }
-    // 迷你卡高度与被展开的折叠卡一致
-    val miniHeight = anchorBounds
-        ?.let { with(density) { it.height.toDp() } }
-        ?.coerceAtLeast(72.dp)
-        ?: 72.dp
-    val cardHeightPx = with(density) { miniHeight.toPx() }
-    val contentWidthPx = (itemWidthPx * courses.size + gapPx * (courses.size - 1).coerceAtLeast(0))
-        .coerceAtMost(screenWidthPx - marginPx * 2)
-        .coerceAtLeast(itemWidthPx)
+    // 展开后的卡片尺寸 = 折叠卡的 100%（宽度与高度均保持折叠态）；
+    // 每张卡顶端相对锚点顶端偏移，与折叠前在网格中的位置保持平行
+    val fallbackWidthPx = with(density) { 96.dp.toPx() }
+    val fallbackHeightPx = with(density) { 120.dp.toPx() }
+    val itemWidth = with(density) {
+        (anchorBounds?.width?.toFloat() ?: fallbackWidthPx).toDp()
+    }
+    val itemWidthPx = with(density) { itemWidth.toPx() }
+    val cardHeightsPx = entries.map { (_, foldedHeight, _) ->
+        with(density) { foldedHeight.toPx() }
+    }
+    // 负偏移合法：点击的卡可能晚于组内其他课开始，那些迷你卡要向上对齐各自折叠前位置
+    val cardTopOffsetsPx = entries.map { (_, _, topOffset) ->
+        with(density) { topOffset.toPx() }
+    }
+    val lowestBottomPx = cardHeightsPx.indices
+        .maxOf { cardTopOffsetsPx[it] + cardHeightsPx[it] }
+        .coerceAtLeast(fallbackHeightPx)
+    val contentWidthPx = itemWidthPx * entries.size +
+        gapPx * (entries.size - 1).coerceAtLeast(0)
     val expandToLeft = anchorBounds != null &&
         anchorBounds.right + marginPx + contentWidthPx > screenWidthPx - marginPx
     val anchorX = when {
@@ -3698,22 +3717,31 @@ private fun ConflictGroupExpandOverlay(
         !expandToLeft -> anchorBounds.right + marginPx
         else -> (anchorBounds.left - marginPx - contentWidthPx).coerceAtLeast(marginPx)
     }
-    val anchorY = (anchorBounds?.top ?: ((screenHeightPx - cardHeightPx) / 2f))
-        .coerceIn(marginPx, (screenHeightPx - cardHeightPx - marginPx).coerceAtLeast(marginPx))
-    val positionProvider = remember(anchorX.toInt(), anchorY.toInt()) {
+    // 锚点 Y 直接取被点击卡的顶端，保证每张迷你卡与折叠前位置逐一对齐；
+    // Popup 定位到组内最早的顶端（整体上移），Row 内改用非负偏移，避免负 offset 绘制内容被窗口裁剪；
+    // 窗口高度显式按"最深底端 + 阴影余量"计算，上下各留 12dp，向下偏移的卡也不会被裁
+    val anchorY = anchorBounds?.top ?: ((screenHeightPx - lowestBottomPx) / 2f)
+    val minTopOffsetPx = cardTopOffsetsPx.minOrNull() ?: 0f
+    val shadowAllowancePx = with(density) { 12.dp.toPx() }
+    val rowBottomPx = cardTopOffsetsPx.indices
+        .maxOf { (cardTopOffsetsPx[it] - minTopOffsetPx) + cardHeightsPx[it] }
+        .coerceAtLeast(fallbackHeightPx)
+    val popupContentHeightPx = rowBottomPx + shadowAllowancePx
+    val popupY = anchorY + minTopOffsetPx - shadowAllowancePx
+    val positionProvider = remember(anchorX.toInt(), popupY.toInt()) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
                 windowSize: IntSize,
                 layoutDirection: LayoutDirection,
                 popupContentSize: IntSize
-            ): IntOffset = IntOffset(anchorX.toInt(), anchorY.toInt())
+            ): IntOffset = IntOffset(anchorX.toInt(), popupY.toInt())
         }
     }
 
     // 入场：向展开方向轻微滑入 + 淡入
-    var appeared by remember(courses) { mutableStateOf(false) }
-    LaunchedEffect(courses) { appeared = true }
+    var appeared by remember(entries) { mutableStateOf(false) }
+    LaunchedEffect(entries) { appeared = true }
     val appearProgress by animateFloatAsState(
         targetValue = if (appeared) 1f else 0f,
         animationSpec = tween(190, easing = CubicBezierEasing(0.16f, 0.82f, 0.18f, 1f)),
@@ -3729,36 +3757,64 @@ private fun ConflictGroupExpandOverlay(
             dismissOnClickOutside = true
         )
     ) {
-        Row(
+        Box(
             modifier = Modifier
+                .requiredHeight(with(density) { popupContentHeightPx.toDp() })
                 .graphicsLayer {
                     alpha = appearProgress
                     translationX = with(density) {
                         val slide = (1f - appearProgress) * 18.dp.toPx()
                         if (expandToLeft) slide else -slide
                     }
-                },
-            horizontalArrangement = Arrangement.spacedBy(gap)
-        ) {
-            courses.forEach { groupCourse ->
-                CourseGlassCard(
-                    backdrop = null,
-                    config = config,
-                    course = groupCourse,
-                    modifier = Modifier
-                        .width(itemWidth)
-                        .height(miniHeight)
-                        .shadow(
-                            elevation = 10.dp * appearProgress,
-                            shape = RoundedRectangle(12.dp),
-                            ambientColor = ComposeColor.Black,
-                            spotColor = ComposeColor.Black
-                        ),
-                    shape = RoundedRectangle(12.dp),
-                    onClick = { onCourseClick(groupCourse) }
-                ) {
-                    WeekCourseOverlayCardContent(groupCourse, config)
                 }
+        ) {
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(gap)
+            ) {
+            entries.forEachIndexed { index, (groupCourse, _, _) ->
+                val entryHeightPx = cardHeightsPx[index]
+                val entryTopPx = anchorY + cardTopOffsetsPx[index]
+                // 卡片在窗口中的绝对位置：供编辑弹窗 morph 与长按快捷菜单定位
+                val entryLeft = anchorX + index * (itemWidthPx + gapPx)
+                val entryRect = Rect(
+                    left = entryLeft,
+                    top = entryTopPx,
+                    right = entryLeft + itemWidthPx,
+                    bottom = entryTopPx + entryHeightPx
+                )
+                // 外层统一接管点击与长按：长按打开与课表卡一致的快捷操作菜单
+                Box(
+                    modifier = Modifier
+                        // Popup 已上移到组内最早顶端，这里用相对 popupY 的非负偏移，
+                        // 保证绘制内容完整落在 Popup 窗口内不被裁剪
+                        .offset(y = with(density) { (cardTopOffsetsPx[index] - minTopOffsetPx).toDp() })
+                        .width(itemWidth)
+                        .height(with(density) { entryHeightPx.toDp() })
+                        .combinedClickable(
+                            onClick = { onCourseClick(groupCourse, entryRect) },
+                            onLongClick = { onLongPress(groupCourse, entryRect) }
+                        )
+                ) {
+                    CourseGlassCard(
+                        backdrop = null,
+                        config = config,
+                        course = groupCourse,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .shadow(
+                                elevation = 10.dp * appearProgress,
+                                shape = RoundedRectangle(12.dp),
+                                ambientColor = ComposeColor.Black,
+                                spotColor = ComposeColor.Black
+                            ),
+                        shape = RoundedRectangle(12.dp),
+                        onClick = null
+                    ) {
+                        WeekCourseOverlayCardContent(groupCourse, config)
+                    }
+                }
+            }
             }
         }
     }

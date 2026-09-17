@@ -498,6 +498,10 @@ internal object MiuixTodayWidgetRenderer {
         if (assistantIds.isNotEmpty()) {
             TodayAssistantWidgetRenderer.refreshNow(context, manager, assistantIds)
         }
+        val agendaIds = manager.getAppWidgetIds(ComponentName(context, AgendaWidgetProvider::class.java))
+        if (agendaIds.isNotEmpty()) {
+            AgendaWidgetRenderer.refreshNow(context, manager, agendaIds)
+        }
         // Generated previews can reflect preferences; XML previews cannot. A rejected
         // (rate-limited) update is retried only on the next ordinary widget refresh.
         if (Build.VERSION.SDK_INT >= 35) {

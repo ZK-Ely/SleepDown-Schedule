@@ -7,6 +7,8 @@
     <string name="widget_today_courses_square_name">今日课程</string>
     <string name="widget_today_tomorrow_name">今明课程</string>
     <string name="widget_today_tomorrow_description">同时显示今天与明天的课程安排</string>
+    <string name="widget_agenda_name">课程列表</string>
+    <string name="widget_agenda_description">按时间排列的课程安排，可上下滑动查看</string>
     <string name="widget_week_schedule_name">周视图课程表</string>
     <string name="widget_week_schedule_description">可拉伸的本周课程表</string>
     <string name="widget_today_assistant_name">今日助手</string>

@@ -306,14 +306,16 @@ object NotificationScheduler {
     }
 
     fun checkImmediateLiveUpdate(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
-        if (isPreviewLiveUpdateRunning(context)) {
-            Log.d(TAG, "keep preview live update while app state refreshes")
-            return
-        }
-        if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE) {
-            Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}")
+        // 显式关闭（总开关/实时活动按钮）优先于预览保护：否则预览存活期间
+        // 这些开关的取消路径会被 keep 直接跳过，表现为设置项失效
+        if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE || !config.liveUpdateActionsEnabled) {
+            Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}, actions=${config.liveUpdateActionsEnabled}")
             NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
             stopLiveUpdateService(context)
+            return
+        }
+        if (isPreviewLiveUpdateRunning(context)) {
+            Log.d(TAG, "keep preview live update while app state refreshes")
             return
         }
         if (!canPostNotifications(context)) {
@@ -712,11 +714,19 @@ object NotificationScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
+        // 「禁止应用关闭勿扰」开启且勿扰已激活时：不提供关闭按钮，正文追加文字提示
+        val suppressDndCloseButton = payload.showActions &&
+            payload.kind != LiveUpdateKind.TOMORROW &&
+            status.progressPercent == null &&
+            LiveUpdatePreferences.isDndCloseDisabled(context) &&
+            isDoNotDisturbEnabledByApp(context)
+        val displayBodyText = if (suppressDndCloseButton) "$bodyText · 勿扰已开启" else bodyText
+        val displayExpandedText = if (suppressDndCloseButton) "$expandedText · 勿扰已开启" else expandedText
         builder
             .setSmallIcon(com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId(context))
             .setContentTitle(titleText)
-            .setContentText(bodyText)
-            .setStyle(android.app.Notification.BigTextStyle().bigText(expandedText))
+            .setContentText(displayBodyText)
+            .setStyle(android.app.Notification.BigTextStyle().bigText(displayExpandedText))
             .setContentIntent(contentIntent)
             .setDeleteIntent(
                 actionPendingIntent(
@@ -778,6 +788,7 @@ object NotificationScheduler {
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             val hasDndAccess = notificationManager?.isNotificationPolicyAccessGranted == true
             val dndEnabled = isDoNotDisturbEnabledByApp(context)
+            val dndCloseDisabled = LiveUpdatePreferences.isDndCloseDisabled(context)
             val dndTitle = when {
                 !hasDndAccess -> "授权勿扰"
                 dndEnabled -> "关闭勿扰"
@@ -789,11 +800,15 @@ object NotificationScheduler {
                     "取消本次提醒",
                     actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, payload.muteKey, payload.muteUntil)
                 ).build())
-                .addAction(android.app.Notification.Action.Builder(
-                    Icon.createWithResource(context, R.drawable.ic_moon_light),
-                    dndTitle,
-                    dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
-                ).build())
+            // 「禁止应用关闭勿扰」开启时，勿扰激活期不提供关闭按钮（正文已显示"勿扰已开启"）
+            if (!dndEnabled || !dndCloseDisabled) {
+                builder
+                    .addAction(android.app.Notification.Action.Builder(
+                        Icon.createWithResource(context, R.drawable.ic_moon_light),
+                        dndTitle,
+                        dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
+                    ).build())
+            }
         }
         runCatching {
             builder.javaClass
@@ -968,6 +983,15 @@ object NotificationScheduler {
             }.isSuccess
             if (changed) {
                 prefs.edit { putBoolean(KEY_DND_ENABLED_BY_APP, enable) }
+                // 点击按钮后立即以最新勿扰状态重建通知，不等下一分钟整点：
+                // 服务收到无 extras 的启动意图时从持久化 payload 恢复并立刻重建，
+                // 按钮文案随新状态切换（开启→"关闭勿扰"，关闭→"开启勿扰"）
+                runCatching {
+                    context.startForegroundService(
+                        Intent(context, com.xiaomanjun.sleepdownschedule.LiveUpdateForegroundService::class.java)
+                            .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
+                    )
+                }
                 refreshVisibleLiveUpdate(context)
             }
         } else {

@@ -661,6 +661,9 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    /** 读取指定课表当前的节次时间表（供"保留现有作息"类导入路径使用） */
+    suspend fun periodsForSchedule(scheduleId: Int): List<PeriodEntity> = configDao.getPeriods(scheduleId)
+
     suspend fun snapshot(): AppState = database.withTransaction {
         val activeId = activeScheduleId()
         AppState(

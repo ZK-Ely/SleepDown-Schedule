@@ -2159,3 +2159,242 @@ internal object WeekScheduleWidgetRenderer {
         )
     }
 }
+
+/** 「今明课程（可滚动）」小组件：复刻今明课程两列卡片，每列 ListView 可上下拖动查看全天课程 */
+internal object AgendaWidgetRenderer {
+
+    fun refresh(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        refreshAsync(context, manager, ids)
+    }
+
+    internal fun refreshAsync(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray
+    ): Job = launchWidgetWork(context) {
+        refreshNow(context, manager, ids)
+    }
+
+    internal suspend fun refreshNow(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray
+    ) {
+        if (ids.isEmpty()) return
+        val app = context.applicationContext as CourseScheduleApp
+        app.repository.ensureDefaults()
+        val state = app.repository.activeSnapshot()
+        ids.forEach { id ->
+            val appearance = app.widgetAppearanceRepository.get(WidgetAppearanceVariant.AGENDA, id)
+            runCatching { manager.updateAppWidget(id, buildViews(context, state, appearance)) }
+                .onFailure { Log.e("ScheduleWidget", "Failed to update agenda widget $id", it) }
+        }
+    }
+
+    internal fun buildViews(
+        context: Context,
+        state: AppState,
+        appearance: WidgetAppearanceEntity,
+        size: WidgetRenderSize = WidgetRenderSize(320, 240),
+        transparentBackground: Boolean = false
+    ): RemoteViews {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val now = LocalTime.now(zone)
+        val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
+        val courseColors = WidgetCourseColors.assignments(context, state, dark)
+        val week = scheduleWeekForDateOrNull(state.config, today)
+            ?: effectiveCurrentWeek(state.config, today)
+        val termStatus = scheduleTermStatusLabel(state.config, today)
+        val canScroll = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val custom = WidgetBackgroundRenderer.render(
+            context = context,
+            appearance = appearance,
+            size = size,
+            darkMode = dark
+        )
+        val globallyDark = custom?.darkBackground ?: dark
+        val primary = custom?.header ?: if (globallyDark) Color.WHITE else Color.rgb(17, 17, 17)
+        val secondary = custom?.headerSecondary
+            ?: if (globallyDark) Color.argb(170, 255, 255, 255) else Color.argb(150, 0, 0, 0)
+        // 课程卡与今明课程一致：按全局明暗切换卡片背景与文字颜色，避免白底白字
+        val rowBackground = if (globallyDark) {
+            R.drawable.widget_course_background_compact_dark
+        } else {
+            R.drawable.widget_course_background_compact
+        }
+        val rowPrimary = if (globallyDark) Color.WHITE else Color.rgb(17, 17, 17)
+        val rowSecondary = if (globallyDark) {
+            Color.argb(150, 255, 255, 255)
+        } else {
+            Color.argb(105, 17, 17, 17)
+        }
+        val dates = listOf(today, today.plusDays(1))
+        val dayCourses = dates.mapIndexed { index, date ->
+            val courses = MiuixTodayWidgetRenderer.coursesForDate(state, date)
+            if (index == 0) {
+                remainingCoursesForTodayWidget(courses, state.periods, now)
+            } else {
+                courses
+            }
+        }
+
+        fun dayCollection(courses: List<CourseEntity>): RemoteViews.RemoteCollectionItems {
+            val builder = RemoteViews.RemoteCollectionItems.Builder()
+                .setHasStableIds(true)
+                .setViewTypeCount(1)
+            var itemId = 0L
+            if (courses.isEmpty()) {
+                // 空集合在部分 launcher 上加载异常：保留一行完全透明的占位行，
+                // 无课提示改由居中的 empty 文本显示（与今明课程一致）
+                val placeholder = RemoteViews(context.packageName, R.layout.widget_agenda_course_row).apply {
+                    setInt(R.id.widget_agenda_course_root, "setBackgroundResource", android.R.color.transparent)
+                    setTextViewText(R.id.widget_agenda_course_time_start, "")
+                    setTextViewText(R.id.widget_agenda_course_time_end, "")
+                    setTextViewText(R.id.widget_agenda_course_name, "")
+                    setTextViewText(R.id.widget_agenda_course_detail, "")
+                    setViewVisibility(R.id.widget_agenda_course_indicator, View.INVISIBLE)
+                    setOnClickFillInIntent(R.id.widget_agenda_course_root, Intent())
+                }
+                builder.addItem(itemId++, placeholder)
+                return builder.build()
+            }
+            courses.forEach { course ->
+                val start = courseStartTime(course, state.periods)?.format(WidgetTimeFormatter).orEmpty()
+                val end = courseEndTime(course, state.periods)?.format(WidgetTimeFormatter).orEmpty()
+                val row = RemoteViews(context.packageName, R.layout.widget_agenda_course_row).apply {
+                    setInt(R.id.widget_agenda_course_root, "setBackgroundResource", rowBackground)
+                    setTextViewText(R.id.widget_agenda_course_time_start, start)
+                    setTextViewText(R.id.widget_agenda_course_time_end, end)
+                    setTextViewText(R.id.widget_agenda_course_name, course.name)
+                    setTextViewText(R.id.widget_agenda_course_detail, widgetCourseDetail(course))
+                    setInt(
+                        R.id.widget_agenda_course_indicator,
+                        "setColorFilter",
+                        WidgetCourseColors.color(state.config, course, courseColors)
+                    )
+                    setTextColor(R.id.widget_agenda_course_time_start, rowPrimary)
+                    setTextColor(R.id.widget_agenda_course_time_end, rowSecondary)
+                    setTextColor(R.id.widget_agenda_course_name, rowPrimary)
+                    setTextColor(R.id.widget_agenda_course_detail, rowSecondary)
+                    setOnClickFillInIntent(R.id.widget_agenda_course_root, Intent())
+                }
+                builder.addItem(itemId++, row)
+            }
+            return builder.build()
+        }
+
+        return RemoteViews(context.packageName, R.layout.widget_agenda_scrollable).apply {
+            setImageViewResource(R.id.widget_agenda_icon, currentIconResId(context))
+            if (custom != null && !transparentBackground) {
+                setViewVisibility(R.id.widget_agenda_background_image, View.VISIBLE)
+                setImageViewBitmap(R.id.widget_agenda_background_image, custom.bitmap)
+                setInt(R.id.widget_agenda_root, "setBackgroundColor", Color.TRANSPARENT)
+            } else {
+                setViewVisibility(R.id.widget_agenda_background_image, View.GONE)
+                setInt(
+                    R.id.widget_agenda_root,
+                    "setBackgroundResource",
+                    if (globallyDark) R.drawable.widget_today_background_dark else R.drawable.widget_today_background
+                )
+            }
+            if (transparentBackground) {
+                setInt(R.id.widget_agenda_root, "setBackgroundColor", Color.TRANSPARENT)
+            }
+            setTextViewText(R.id.widget_agenda_title, "今明课程")
+            setTextViewText(
+                R.id.widget_agenda_meta,
+                week?.let { "第${it}周" } ?: termStatus.orEmpty()
+            )
+            setTextViewText(R.id.widget_agenda_today_title, "今天 · ${shortChineseWeekday(today)}")
+            setTextViewText(R.id.widget_agenda_tomorrow_title, "明天 · ${shortChineseWeekday(dates.last())}")
+            setTextColor(R.id.widget_agenda_title, primary)
+            setTextColor(R.id.widget_agenda_meta, secondary)
+            setTextColor(R.id.widget_agenda_today_title, primary)
+            setTextColor(R.id.widget_agenda_tomorrow_title, primary)
+            setTextColor(R.id.widget_agenda_today_empty, secondary)
+            setTextColor(R.id.widget_agenda_tomorrow_empty, secondary)
+            setInt(
+                R.id.widget_agenda_divider,
+                "setBackgroundColor",
+                if (globallyDark) Color.argb(30, 255, 255, 255) else Color.argb(24, 0, 0, 0)
+            )
+            if (canScroll) {
+                setRemoteAdapter(R.id.widget_agenda_today_list, dayCollection(dayCourses[0]))
+                setRemoteAdapter(R.id.widget_agenda_tomorrow_list, dayCollection(dayCourses[1]))
+                setPendingIntentTemplate(R.id.widget_agenda_today_list, agendaOpenAppPendingIntent(context))
+                setPendingIntentTemplate(R.id.widget_agenda_tomorrow_list, agendaOpenAppPendingIntent(context))
+            }
+            // 无课天数显示居中提示（与今明课程一致的文案）；低版本系统提示需升级
+            setViewVisibility(
+                R.id.widget_agenda_today_empty,
+                if (!canScroll || dayCourses[0].isEmpty()) View.VISIBLE else View.GONE
+            )
+            setTextViewText(
+                R.id.widget_agenda_today_empty,
+                if (!canScroll) "需要 Android 12+" else "今天没课了"
+            )
+            setViewVisibility(
+                R.id.widget_agenda_tomorrow_empty,
+                if (!canScroll || dayCourses[1].isEmpty()) View.VISIBLE else View.GONE
+            )
+            setTextViewText(
+                R.id.widget_agenda_tomorrow_empty,
+                if (!canScroll) "需要 Android 12+" else "明天没有课"
+            )
+            if (!canScroll) {
+                // 低版本系统不支持集合远程视图：两列列表退化为空提示
+                setViewVisibility(R.id.widget_agenda_today_list, View.GONE)
+                setViewVisibility(R.id.widget_agenda_tomorrow_list, View.GONE)
+            }
+            setOnClickPendingIntent(R.id.widget_agenda_root, agendaOpenAppPendingIntent(context))
+        }
+    }
+
+    private fun agendaOpenAppPendingIntent(context: Context): PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(context, MainActivity::class.java)
+        return PendingIntent.getActivity(
+            context,
+            2601,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+}
+
+open class AgendaWidgetProviderHost : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        keepBroadcastAliveUntil(AgendaWidgetRenderer.refreshAsync(context, manager, ids))
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (MiuixTodayWidgetRenderer.isRefreshAction(intent.action)) {
+            keepBroadcastAliveUntil(MiuixTodayWidgetRenderer.refreshAllAsync(context))
+        }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        keepBroadcastAliveUntil(
+            AgendaWidgetRenderer.refreshAsync(context, manager, intArrayOf(appWidgetId))
+        )
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val app = context.applicationContext as CourseScheduleApp
+        keepBroadcastAliveUntil(
+            launchWidgetWork(context) {
+                appWidgetIds.forEach {
+                    app.widgetAppearanceRepository.deleteInstance(WidgetAppearanceVariant.AGENDA, it)
+                }
+            }
+        )
+    }
+}

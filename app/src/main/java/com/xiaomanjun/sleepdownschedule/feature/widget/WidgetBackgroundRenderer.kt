@@ -215,7 +215,8 @@ internal object WidgetBackgroundRenderer {
                     todayTomorrowMetrics ?: todayTomorrowWidgetLayoutMetrics(size)
                 )
                 WidgetAppearanceVariant.WEEK_SCHEDULE,
-                WidgetAppearanceVariant.TODAY_ASSISTANT -> renderPlain(base)
+                WidgetAppearanceVariant.TODAY_ASSISTANT,
+                WidgetAppearanceVariant.AGENDA -> renderPlain(base)
             }
         }
         result.bitmap.setHasAlpha(false)
