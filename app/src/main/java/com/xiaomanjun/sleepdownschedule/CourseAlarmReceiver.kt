@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietScheduler
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -13,12 +14,14 @@ import java.time.LocalTime
 class CourseAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS ||
+            intent.action == CourseQuietScheduler.RefreshAction ||
             intent.action == Intent.ACTION_SCREEN_ON || intent.action == Intent.ACTION_USER_PRESENT
         ) {
             val pending = goAsync()
             NotificationScheduler.requestRefresh(
                 context,
-                forceReschedule = intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS
+                forceReschedule = intent.action == NotificationScheduler.ACTION_REFRESH_COURSE_ALARMS ||
+                    intent.action == CourseQuietScheduler.RefreshAction
             ) {
                 pending.finish()
             }
@@ -68,7 +71,7 @@ class CourseAlarmReceiver : BroadcastReceiver() {
                 val livePayload = payload ?: return@withShortWakeLock
                 if (livePayload.shouldStop()) {
                     Log.d("SleepDownLiveUpdate", "alarm boundary reached payload expiry key=${livePayload.muteKey}")
-                    NotificationManagerCompat.from(context).cancel(NotificationScheduler.liveUpdateId())
+                    NotificationScheduler.cancelLiveUpdateNotifications(context)
                     NotificationScheduler.stopLiveUpdateService(context)
                     return@withShortWakeLock
                 }

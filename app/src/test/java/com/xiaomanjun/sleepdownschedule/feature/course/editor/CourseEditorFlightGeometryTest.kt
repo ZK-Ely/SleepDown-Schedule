@@ -10,6 +10,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorFlightGeometryTest {
+    @Test fun daySourceKeepsGlyphProportionsWhileOnlyEditorHeightGrows() {
+        val source = Rect(20f, 400f, 360f, 500f)
+        for (height in listOf(100f, 300f, 600f)) {
+            assertEquals(1f, courseEditorDaySourceScale(source, Rect(20f, 100f, 360f, 100f + height)), 0f)
+        }
+        assertEquals(0.5f, courseEditorDaySourceScale(source, Rect(0f, 0f, 170f, 600f)), 0f)
+    }
+
+    @Test fun dayCornerUsesSourceAtHandoffStartAndEditorAtHandoffEnd() {
+        for (scale in listOf(0.8f, 1f, 1.1f)) {
+            assertEquals(24f * scale, courseEditorDayCornerRadius(24f, scale, 32f, 0f), 0.00001f)
+            assertEquals(32f, courseEditorDayCornerRadius(24f, scale, 32f, 1f), 0.00001f)
+        }
+    }
+
+    @Test fun deferredEditorCornerTracksMotionAndSamplingDensity() {
+        var radius = 112f
+        val shape = CourseEditorMorphCornerShape(112f, 112f, sourceDensity = 3.5f,
+            radiusProvider = { radius })
+        val size = Size(700f, 1200f)
+        assertEquals(112f, shape.topStart.toPx(size, Density(3.5f)), 0.001f)
+        assertEquals(56f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
+        radius = 70f
+        assertEquals(70f, shape.topStart.toPx(size, Density(3.5f)), 0.001f)
+        assertEquals(35f, shape.topStart.toPx(size * 0.5f, Density(1.75f)), 0.001f)
+    }
+
     @Test fun closeKeepsOpeningOrientationAndSettlesAtBothEndpoints() {
         for (delta in listOf(-400f, 400f)) {
             for (step in 0..100) {

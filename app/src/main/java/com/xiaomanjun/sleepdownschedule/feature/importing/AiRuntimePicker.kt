@@ -1,26 +1,18 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-
-import com.xiaomanjun.sleepdownschedule.*
-
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
-import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +33,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
+import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 
 @Stable
 internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
@@ -104,7 +105,9 @@ internal fun AiRuntimePicker(
         AiImportSettingsStore.selectableProfiles(context)
             .filter { it.id != AiProviderPresets.none.id }
             .filter { profile ->
-                AiImportSettingsStore.loadProvider(context, profile.id).apiKey.isNotBlank()
+                if (profile.id == AiProviderPresets.chatGpt.id) {
+                    com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager.hasSession(context)
+                } else AiImportSettingsStore.loadProvider(context, profile.id).apiKey.isNotBlank()
             }
     }
     val modelOptions = remember(state.settings.profile, state.revision) {
@@ -125,7 +128,6 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "provider",
             text = "供应商",
-            summary = state.settings.profile.displayName,
             enabled = profiles.isNotEmpty(),
             children = profiles.map { profile ->
                 SleepDownLiquidMenuItem(
@@ -141,7 +143,6 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "model",
             text = "模型",
-            summary = state.settings.profile.defaultModel,
             enabled = modelOptions.isNotEmpty(),
             children = modelOptions.mapIndexed { index, option ->
                 SleepDownLiquidMenuItem(
@@ -156,6 +157,7 @@ internal fun AiRuntimePicker(
                         val supportedEfforts = AiProviderPresets.reasoningEfforts(candidate)
                         val nextProfile = candidate.copy(
                             reasoningEffort = candidate.reasoningEffort.takeIf { it in supportedEfforts }
+                                ?: AiReasoningEffort.MEDIUM.takeIf { AiProviderPresets.isChatGptId(candidate.id) }
                                 ?: supportedEfforts.firstOrNull()
                                 ?: candidate.reasoningEffort
                         )
@@ -168,11 +170,7 @@ internal fun AiRuntimePicker(
             key = "reasoning",
             text = "思考强度",
             enabled = responsesEnabled && efforts.isNotEmpty(),
-            summary = if (responsesEnabled) {
-                state.settings.profile.reasoningEffort.label
-            } else {
-                "需启用 Responses"
-            },
+            summary = if (responsesEnabled) null else "需启用 Responses",
             children = if (responsesEnabled) {
                 efforts.map { effort ->
                     SleepDownLiquidMenuItem(
@@ -194,6 +192,10 @@ internal fun AiRuntimePicker(
         )
     )
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+    var triggerTransferred by remember { mutableStateOf(false) }
+    LaunchedEffect(state.expanded) {
+        if (state.expanded) triggerTransferred = true
+    }
     Box(
         modifier = Modifier
             .wrapContentSize()
@@ -221,6 +223,7 @@ internal fun AiRuntimePicker(
         if (embedded) {
             Box(
                 modifier = modifier
+                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f }
                     .heightIn(min = 32.dp)
                     .clip(shape)
                     .background(foreground.copy(alpha = 0.045f))
@@ -241,7 +244,8 @@ internal fun AiRuntimePicker(
             GlassSurface(
                 backdrop = backdrop,
                 config = config,
-                modifier = modifier.heightIn(min = 32.dp),
+                modifier = modifier.heightIn(min = 32.dp)
+                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f },
                 shape = shape,
                 tokens = GlassTokens.pill(intensity = 0.72f).copy(
                     blur = 8.dp,
@@ -265,7 +269,10 @@ internal fun AiRuntimePicker(
             onDismissRequest = state::dismiss,
             backdrop = popupBackdrop,
             config = config,
-            contentColor = popupForeground
+            contentColor = popupForeground,
+            morphFromAnchor = true,
+            collapseContent = labelContent,
+            onDismissFinished = { triggerTransferred = false }
         )
     }
 }

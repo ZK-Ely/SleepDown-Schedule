@@ -8,9 +8,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -34,15 +31,18 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.AddMenuAction
-import com.xiaomanjun.sleepdownschedule.app.ui.HomeMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.model.HomeMode
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 internal data class CourseShortcutRequest(
     val course: CourseEntity,
@@ -65,6 +65,8 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
     val progress = Animatable(0f)
     val cardScale = Animatable(1f)
     private var motion: Job? = null
+    // Optional native window exit barrier. Background blur keeps its existing animation.
+    var dismissNativeMenu: (((() -> Unit) -> Unit))? = null
 
     fun open(value: CourseShortcutRequest) {
         motion?.cancel()
@@ -91,9 +93,13 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         if (request == null || closing) return
         closing = true
         motion?.cancel()
+        val nativeExit = CompletableDeferred<Unit>()
+        val dismiss = dismissNativeMenu
+        if (dismiss == null) nativeExit.complete(Unit) else dismiss { nativeExit.complete(Unit) }
         motion = scope.launch {
             launch { cardScale.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
             progress.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
+            nativeExit.await()
             request = null
             closing = false
             afterClose?.invoke()
@@ -226,11 +232,11 @@ internal fun CourseShortcutOverlay(
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close(request.enterEditMode)
                     },
-                    AddMenuAction(label = "编辑单节课", imageVector = Icons.Rounded.EditNote) {
+                    AddMenuAction(R.drawable.ic_edit, "编辑单节课") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close { onEdit(request) }
                     },
-                    AddMenuAction(label = "复制课程", imageVector = Icons.Rounded.ContentCopy) {
+                    AddMenuAction(R.drawable.ic_copy, "复制课程") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         controller.close { controller.copyRequest = request }
                     },
@@ -244,7 +250,11 @@ internal fun CourseShortcutOverlay(
                 )
             }
             val target = placement.bounds
-            HomeAddMenuMorphPanel(
+            val nativeMenu = LocalHomeMaterialControls.current.ShortcutMenu(
+                session = request, bounds = source, dark = appUsesDarkTheme(config), actions = actions,
+                closing = controller.closing,
+                onDismiss = { controller.close() }, bindDismiss = { controller.dismissNativeMenu = it })
+            if (!nativeMenu) HomeAddMenuMorphPanel(
                 backdrop = backdrop, config = config, actions = actions,
                 homeMode = HomeMode.Week, onHomeModeChange = {},
                 targetSizeProvider = { IntSize(target.width.roundToInt(), target.height.roundToInt()) },
@@ -287,7 +297,7 @@ internal fun CourseShortcutOverlay(
                     controller.copyRequest = null
                     onCopy(copy, copiedShortcutCourse(copy.course, copy.week))
                 },
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { controller.copyRequest = null }
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { controller.copyRequest = null }
             ),
             onDismissRequest = { controller.copyRequest = null },
             backdrop = backdrop, config = config

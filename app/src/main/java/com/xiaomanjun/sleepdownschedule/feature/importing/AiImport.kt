@@ -27,15 +27,38 @@ import java.net.Socket
 import java.net.URL
 
 
-class AiScheduleImportService(private val context: Context) {
+class AiScheduleImportService(
+    private val context: Context,
+    private val interaction: AiImportInteraction? = null
+) {
     suspend fun parseScheduleFile(
         file: AiImportFile,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+                withManagedAiFailover(context, settings, requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file) == null)) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleFileOnce(file, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleFileOnce(
+        file: AiImportFile,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
                 require(file.bytes.size <= MaxAiImportFileBytes) { "文件不能超过 20MB" }
@@ -45,11 +68,12 @@ class AiScheduleImportService(private val context: Context) {
                 val networkContext = input.networkContext(
                     context,
                     if (file.isImage) "IMAGE" else "FILE",
-                    onHttpPhase
+                    onHttpPhase,
+                    onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -65,21 +89,42 @@ class AiScheduleImportService(private val context: Context) {
         text: String,
         sourceName: String,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+                withManagedAiFailover(context, settings, requiresVision = false) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleTextOnce(text, sourceName, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleTextOnce(
+        text: String,
+        sourceName: String,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
                 val cleaned = text.trim().take(60_000)
                 require(cleaned.count { !it.isWhitespace() } >= 40) { "当前页面可提取文本太少，请确认已经进入课表页面" }
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
-                val networkContext = input.networkContext(context, "TEXT", onHttpPhase)
+                val networkContext = input.networkContext(context, "TEXT", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -97,11 +142,34 @@ class AiScheduleImportService(private val context: Context) {
         sourceName: String,
         warnings: List<String>,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+                withManagedAiFailover(context, settings, requiresVision = screenshots.isNotEmpty()) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleCapturedPageOnce(text, screenshots, sourceName, warnings, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleCapturedPageOnce(
+        text: String,
+        screenshots: List<RenderedPageImage>,
+        sourceName: String,
+        warnings: List<String>,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
                 val cleaned = text.trim().take(60_000)
@@ -122,11 +190,12 @@ class AiScheduleImportService(private val context: Context) {
                     context,
                     inputType = "CAPTURED_PAGE",
                     onHttpPhase = onHttpPhase,
-                    screenshotCount = screenshots.size
+                    screenshotCount = screenshots.size,
+                    onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 val routeMessage = if (screenshots.isEmpty()) {
                     "已提取当前教务页面文本，使用 AI 解析。"
@@ -147,16 +216,18 @@ class AiScheduleImportService(private val context: Context) {
         output: String,
         failure: AiImportParseFailure,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+        onHttpPhase: (AiImportHttpPhase) -> Unit = {},
+        onReasoningUpdate: (String) -> Unit = {}
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+            require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
             val config = settings.toProviderConfig().normalizedForRequest()
             val repairPrompt = AiImportRepairManager.buildRepairPrompt(output, failure)
             val input = AiScheduleInput.ExtractedText(repairPrompt, "上轮 AI JSON")
-            val networkContext = input.networkContext(context, "REPAIR", onHttpPhase)
+            val networkContext = input.networkContext(context, "REPAIR", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
+                .copy(interaction = interaction)
             val result = when {
                 config.endpointStyle == AiEndpointStyle.RESPONSES ->
                     OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
@@ -176,33 +247,17 @@ class AiScheduleImportService(private val context: Context) {
         instruction: String,
         history: AiEduImportProgress,
         settings: AiImportSettings,
-        onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+        onHttpPhase: (AiImportHttpPhase) -> Unit = {},
+        onReasoningUpdate: (String) -> Unit = {},
+        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> }
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
+            require(settings.hasCredentialConfiguration()) { "请先在设置中配置 AI API Key" }
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
-            val config = settings.toProviderConfig().normalizedForRequest()
-            val request = buildAiRevisionInput(draft, instruction, history)
-            val networkContext = AiImportNetworkContext(
-                inputType = "REVISION",
-                imageCount = history.screenshotPreviews.size,
-                screenshotCount = history.screenshotPreviews.size,
-                onPhase = onHttpPhase,
-                processImportanceProvider = { currentAiProcessImportance(context) }
-            )
-            val result = when {
-                config.endpointStyle == AiEndpointStyle.RESPONSES ->
-                    OpenAiResponsesProvider().reviseSchedule(config, request, history, networkContext)
-                else -> OpenAiCompatibleChatProvider().reviseSchedule(config, request, history, networkContext)
-            }
-            val revisedDraft = applyAiSchedulePatch(draft, result.content)
-            AiScheduleImportResult(
-                output = draftToPayload(revisedDraft).toString(),
-                routeMessage = "已按要求修改课表。",
-                rawOutput = result.content,
-                reasoningOutput = result.reasoning
-            )
+            interaction?.onHttpPhase = onHttpPhase
+            com.xiaomanjun.sleepdownschedule.feature.agent.AgentImportRuntime.revise(
+                context, draft, instruction, history, settings, interaction, onReasoningUpdate, onCheckpoint)
         }
     }
 }
@@ -211,7 +266,8 @@ private fun AiScheduleInput.networkContext(
     context: Context,
     inputType: String,
     onHttpPhase: (AiImportHttpPhase) -> Unit,
-    screenshotCount: Int = 0
+    screenshotCount: Int = 0,
+    onReasoningUpdate: (String) -> Unit = {}
 ): AiImportNetworkContext = AiImportNetworkContext(
     inputType = inputType,
     imageCount = when (this) {
@@ -222,6 +278,9 @@ private fun AiScheduleInput.networkContext(
     },
     screenshotCount = screenshotCount,
     onPhase = onHttpPhase,
+    onReasoningUpdate = onReasoningUpdate,
+    assistantMemory = if (inputType != "REPAIR" && com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences.isMemoryEnabled(context))
+        com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences.memory(context) else "",
     processImportanceProvider = { currentAiProcessImportance(context) }
 )
 
@@ -235,7 +294,7 @@ private fun currentAiProcessImportance(context: Context): Int? = runCatching {
 suspend fun testAiProviderConnection(settings: AiImportSettings): Result<String> {
     return withContext(Dispatchers.IO) {
         runCatching {
-            require(settings.apiKey.isNotBlank()) { "请先配置 AI API Key" }
+            require(settings.hasCredentialConfiguration()) { "请先配置 AI API Key" }
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
             val config = settings.toProviderConfig().normalizedForRequest()
@@ -321,7 +380,7 @@ suspend fun diagnoseAiProviderNetwork(settings: AiImportSettings): Result<String
                 result.appendLine("HTTPS：失败，${it.message.orEmpty()}")
             }
 
-            if (settings.apiKey.isBlank()) {
+            if (!settings.hasCredentialConfiguration()) {
                 result.appendLine("请求测试：跳过，未配置 API Key")
             } else {
                 testAiProviderConnection(settings)
@@ -338,7 +397,7 @@ private fun String.compactForSettingsResult(maxLength: Int = 360): String {
     return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
 }
 
-private fun AiImportSettings.toProviderConfig(): AiProviderConfig {
+internal fun AiImportSettings.toProviderConfig(): AiProviderConfig {
     return AiProviderConfig(
         providerId = profile.id,
         displayName = profile.displayName,
@@ -417,22 +476,49 @@ private fun applyAiSchedulePatch(base: ImportDraft, patchText: String): ImportDr
         periods = periods,
         courses = courses
     )
-    return ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config)
-        .getOrThrow()
-        .copy(source = ImportDraftSource.AI_EDU)
+    val validated = ScheduleImportParser.validateEditedDraft(candidate)
+    return validated.copy(
+        courses = validated.courses.zip(candidate.courses).map { (course, source) ->
+            course.copy(customPeriodTimes = source.customPeriodTimes?.takeIf {
+                course.periods == source.periods && course.customStartTime == source.customStartTime &&
+                    course.customEndTime == source.customEndTime
+            }, originalPeriodTimes = source.originalPeriodTimes)
+        },
+        source = ImportDraftSource.AI_EDU
+    )
 }
 
-private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): CourseEntity = previous.copy(
-    name = value["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { error("课程名称不能为空") },
-    teacher = value["teacher"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
-    location = value["location"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
-    weekday = value["weekday"]?.jsonPrimitive?.intOrNull?.also { require(it in 1..7) } ?: error("课程缺少 weekday"),
-    periods = value["periods"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
-        ?.takeIf { it.isNotEmpty() } ?: error("课程 periods 不能为空"),
-    weeks = value["weeks"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
-        ?.takeIf { it.isNotEmpty() } ?: error("课程 weeks 不能为空"),
-    weekParity = value["weekParity"]?.jsonPrimitive?.contentOrNull?.let { WeekParity.valueOf(it) }
-        ?: error("课程缺少 weekParity"),
-    note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null }
-)
+private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): CourseEntity {
+    val start = value["customStartTime"]?.jsonPrimitive?.contentOrNull?.trim()
+    val end = value["customEndTime"]?.jsonPrimitive?.contentOrNull?.trim()
+    val customRange = when {
+        start == null && end == null -> previous.customStartTime to previous.customEndTime
+        start == "" && end == "" -> null to null
+        !start.isNullOrBlank() && !end.isNullOrBlank() -> start to end
+        else -> error("课程真实开始和结束时间必须同时提供")
+    }
+    val revisedPeriods = value["periods"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+        ?.takeIf { it.isNotEmpty() } ?: error("课程 periods 不能为空")
+    val periodTimes = previous.customPeriodTimes?.takeIf {
+        revisedPeriods == previous.periods && customRange == (previous.customStartTime to previous.customEndTime)
+    }
+    return previous.copy(
+        name = value["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { error("课程名称不能为空") },
+        teacher = value["teacher"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        location = value["location"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        weekday = value["weekday"]?.jsonPrimitive?.intOrNull?.also { require(it in 1..7) } ?: error("课程缺少 weekday"),
+        periods = revisedPeriods,
+        weeks = value["weeks"]?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }?.distinct()?.sorted()
+            ?.takeIf { it.isNotEmpty() } ?: error("课程 weeks 不能为空"),
+        weekParity = value["weekParity"]?.jsonPrimitive?.contentOrNull?.let { WeekParity.valueOf(it) }
+            ?: error("课程缺少 weekParity"),
+        note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+        customStartTime = customRange.first,
+        customEndTime = customRange.second,
+        originalPeriodTimes = previous.originalPeriodTimes?.takeIf {
+            revisedPeriods == previous.periods && customRange == (previous.customStartTime to previous.customEndTime)
+        },
+        customPeriodTimes = periodTimes
+    )
+}
 

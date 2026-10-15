@@ -16,14 +16,37 @@ import kotlinx.serialization.decodeFromString
 
 internal class ShiguangBridgeHost(
     private val context: Context,
-    private val onDraft: (ImportDraft) -> Unit,
-    private val onMessage: (String) -> Unit,
-    private val onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
+    private var onDraft: (ImportDraft) -> Unit,
+    private var onMessage: (String) -> Unit,
+    private var onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val session = ShiguangImportSession()
     private var activeWebView: WebView? = null
     private var initialPromptAnswer: String? = null
+    private val _running = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val running: kotlinx.coroutines.flow.StateFlow<Boolean> = _running
+
+    fun finishExecution() { _running.value = false }
+
+    /** Reuse the already-installed native bridge; addJavascriptInterface only updates after reload. */
+    fun attachTaskCallbacks(
+        onDraft: (ImportDraft) -> Unit,
+        onMessage: (String) -> Unit,
+        onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
+    ): () -> Unit {
+        val previousDraft = this.onDraft
+        val previousMessage = this.onMessage
+        val previousInteraction = this.onInteractionRequest
+        this.onDraft = onDraft
+        this.onMessage = onMessage
+        this.onInteractionRequest = onInteractionRequest
+        return {
+            this.onDraft = previousDraft
+            this.onMessage = previousMessage
+            this.onInteractionRequest = previousInteraction
+        }
+    }
 
     fun bindWebView(webView: WebView?) {
         activeWebView = webView
@@ -35,12 +58,19 @@ internal class ShiguangBridgeHost(
         return true
     }
 
+    fun resolveInteraction(requestId: String, resultRawJs: String) {
+        resolve(requestId, resultRawJs)
+    }
+
     fun beginTask(
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        initialPromptAnswer: String? = null
+        initialPromptAnswer: String? = null,
+        mergeOverlappingTimeSlots: Boolean = false,
+        allowImportedBellTimes: Boolean = false
     ) {
-        session.begin(config, periods)
+        session.begin(config, periods, mergeOverlappingTimeSlots, allowImportedBellTimes)
+        _running.value = true
         this.initialPromptAnswer = initialPromptAnswer
     }
 
@@ -129,15 +159,19 @@ internal class ShiguangBridgeHost(
 
                 "notifyTaskCompletion" -> {
                     val draft = session.complete()
+                    finishExecution()
                     mainHandler.post { onDraft(draft) }
                 }
+
+                "notifyExecutionFinished" -> finishExecution()
 
                 else -> throw IllegalArgumentException("未知拾光 Bridge action：${message.action}")
             }
         } catch (error: Exception) {
             val detail = error.message ?: "拾光 Bridge 处理失败"
+            mainHandler.post { onMessage(detail) }
             message.callbackId?.let { reject(it, detail) }
-                ?: mainHandler.post { onMessage(detail) }
+            if (message.callbackId == null) finishExecution()
         }
     }
 

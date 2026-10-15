@@ -14,7 +14,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
         <intent>
@@ -47,7 +49,7 @@
                 android:value="SleepDown 课程勿扰" />
             <meta-data
                 android:name="android.service.zen.automatic.ruleInstanceLimit"
-                android:value="1" />
+                android:value="2" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -188,6 +190,12 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".feature.settings.ScheduleAdjustmentsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
             android:name=".ScheduleManagerActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
@@ -201,6 +209,11 @@
             android:name=".OplusCourseManagementActivity"
             android:exported="false"
             android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".feature.experimental.colorosui.ColorOsCourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
             android:parentActivityName=".MainActivity" />
         <activity
             android:name=".CourseManagementDetailActivity"
@@ -228,6 +241,12 @@
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".EduSchoolSelectActivity" />
+        <activity
+            android:name=".feature.schedule.autorefresh.SwuUnifiedAuthActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
         <activity
             android:name=".AiEduImportProgressActivity"
             android:exported="false"
@@ -259,6 +278,13 @@
         </provider>
         <receiver android:name=".CourseAlarmReceiver" android:exported="false" />
         <receiver android:name=".LiveUpdateActionReceiver" android:exported="false" />
+        <receiver
+            android:name=".feature.reminder.LegacyDndStateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.INTERRUPTION_FILTER_CHANGED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name=".feature.importing.special.OcrService"
             android:exported="false"
@@ -279,6 +305,11 @@
             android:name=".AiImportForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <receiver android:name=".feature.widget.WidgetPinnedReceiver" android:exported="false" />
+        <service
+            android:name=".feature.importing.chatgpt.ChatGptLoginService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
             android:label="@string/widget_today_courses_name"

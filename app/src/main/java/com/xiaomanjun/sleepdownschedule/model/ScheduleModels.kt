@@ -3,7 +3,9 @@ package com.xiaomanjun.sleepdownschedule.model
 import androidx.compose.runtime.Immutable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Ignore
 import androidx.room.PrimaryKey
+import com.xiaomanjun.sleepdownschedule.domain.schedule.EffectiveCourseArrangement
 
 enum class WeekParity { ALL, ODD, EVEN }
 enum class NotificationMode { STANDARD, LIVE_UPDATE }
@@ -12,8 +14,18 @@ enum class DockAlignment { LEFT, CENTER, RIGHT }
 enum class HomeStartMode { DAY, TWO_DAY, WEEK }
 enum class LiveUpdateChipTextMode { LOCATION, COUNTDOWN, SHORT, NORMAL }
 enum class PeriodSchemeMode { MANUAL, AUTO_MATCH }
+enum class PeriodAlignmentMode { INDEX, TIME }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
 enum class CourseCardColorMode { SOLID, GRADIENT, COLORFUL }
+enum class WeekCardTextAlignment { START, CENTER, END }
+// CENTERED/TOP_DOWN retain the old horizontal alignment when reading existing data.
+enum class WeekCardContentLayout { CURRENT, CENTERED, TOP_DOWN, TOP, MIDDLE }
+
+fun ScheduleConfigEntity.effectiveWeekCardTextAlignment(): WeekCardTextAlignment = when (weekCardContentLayout) {
+    WeekCardContentLayout.CENTERED -> WeekCardTextAlignment.CENTER
+    WeekCardContentLayout.TOP_DOWN -> WeekCardTextAlignment.START
+    else -> weekCardTextAlignment
+}
 
 internal const val DefaultHomeChromeBlurScale = 1f
 internal const val MinHomeChromeBlurScale = 0f
@@ -33,7 +45,7 @@ internal fun normalizedHomeChromeBlurScale(value: Float): Float =
 
 @Entity(tableName = "courses")
 @Immutable
-data class CourseEntity(
+data class CourseEntity @Ignore constructor(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val teacher: String?,
@@ -47,8 +59,19 @@ data class CourseEntity(
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
     @ColumnInfo(defaultValue = "1")
-    val scheduleId: Int = 1
-)
+    val scheduleId: Int = 1,
+    val customPeriodTimes: String? = null,
+    val originalPeriodTimes: String? = null,
+    @Ignore val arrangementProjection: EffectiveCourseArrangement? = null
+) {
+    // Room constructs stored arrangements without the transient display projection.
+    constructor(id: Long, name: String, teacher: String?, location: String?, weekday: Int,
+        periods: List<Int>, weeks: List<Int>, weekParity: WeekParity, note: String?,
+        customStartTime: String?, customEndTime: String?, customColorArgb: Long?, scheduleId: Int,
+        customPeriodTimes: String?, originalPeriodTimes: String?) : this(id, name, teacher, location,
+        weekday, periods, weeks, weekParity, note, customStartTime, customEndTime, customColorArgb,
+        scheduleId, customPeriodTimes, originalPeriodTimes, null)
+}
 
 @Entity(tableName = "schedule_profiles")
 @Immutable
@@ -101,6 +124,10 @@ data class ScheduleConfigEntity(
     val weekCardHeightDp: Float? = null,
     @ColumnInfo(defaultValue = "1") val weekCardHeightScale: Float = 1f,
     @ColumnInfo(defaultValue = "0.5") val weekCardCornerProgress: Float = 0.5f,
+    @ColumnInfo(defaultValue = "1") val weekCardShowLocation: Boolean = true,
+    @ColumnInfo(defaultValue = "1") val weekCardShowTeacher: Boolean = true,
+    @ColumnInfo(defaultValue = "'CENTER'") val weekCardTextAlignment: WeekCardTextAlignment = WeekCardTextAlignment.CENTER,
+    @ColumnInfo(defaultValue = "'CURRENT'") val weekCardContentLayout: WeekCardContentLayout = WeekCardContentLayout.CURRENT,
     val homeTextLight: Boolean = false,
     @ColumnInfo(defaultValue = "1") val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
     @ColumnInfo(defaultValue = "1") val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
@@ -108,6 +135,8 @@ data class ScheduleConfigEntity(
     val darkMode: Boolean = false,
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val showNonCurrentWeekCourses: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val scheduleAdjustmentsJson: String = "",
     val dockAlignment: DockAlignment = DockAlignment.CENTER,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,
     val liveUpdateActionsEnabled: Boolean = true,
@@ -119,7 +148,9 @@ data class ScheduleConfigEntity(
     @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 4,
     @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 4,
     val hideFromRecents: Boolean = false,
-    val autoCheckUpdates: Boolean = true
+    val autoCheckUpdates: Boolean = true,
+    @ColumnInfo(defaultValue = "NULL") val activePeriodSchemeId: Long? = null,
+    @ColumnInfo(defaultValue = "'INDEX'") val periodAlignmentMode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX
 )
 
 @Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
@@ -135,6 +166,7 @@ data class PeriodEntity(
 @Immutable
 data class PeriodSchemeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    // Legacy provenance only. Selection belongs to ScheduleConfigEntity.activePeriodSchemeId.
     val scheduleId: Int,
     val name: String,
     val mode: PeriodSchemeMode = PeriodSchemeMode.MANUAL,
@@ -146,8 +178,18 @@ data class PeriodSchemeEntity(
     val afternoonStartTime: String = "14:00",
     val eveningStartTime: String = "19:00",
     val specialBreaksJson: String = "{}",
-    val overridesJson: String = "{}"
+    val overridesJson: String = "{}",
+    @ColumnInfo(defaultValue = "0") val morningPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val noonPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "''") val publicId: String = "",
+    @ColumnInfo(defaultValue = "''") val sourceScheduleName: String = ""
 )
+
+/** Committed together with an imported legacy library so removed entries never reappear. */
+@Entity(tableName = "period_scheme_library_migrations")
+data class PeriodSchemeLibraryMigrationEntity(@PrimaryKey val sourceId: String)
 
 @Entity(tableName = "period_scheme_times", primaryKeys = ["schemeId", "periodIndex"])
 @Immutable

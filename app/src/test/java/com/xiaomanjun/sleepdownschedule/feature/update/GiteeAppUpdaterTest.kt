@@ -7,6 +7,15 @@ import org.junit.Test
 
 class GiteeAppUpdaterTest {
     @Test
+    fun componentSelectsNewestReleaseEvenWhenGiteeReturnsOldestFirst() {
+        val latest = release("v1.2.6-exp10", true)
+        val candidates = listOf(release("v1.2.6-exp", true), latest, release("v1.2.6-exp2", true))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates.reversed()))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates + release("v1.3.0-exp").copy(apkUrl = null)))
+    }
+
+    @Test
     fun comparesNumericVersions() {
         assertTrue(GiteeAppUpdater.isVersionNewer("v1.1", "1.0"))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.0.1", "1.0"))
@@ -35,6 +44,10 @@ class GiteeAppUpdaterTest {
         assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-rc1", "1.4.3-beta10"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3+99", "1.4.3+1"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3_beta2", "v1.4.3-beta2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-exp2", "1.4.3-exp"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3-exp", "1.4.3-exp2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3_beta7", "1.4.3-exp"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3", "1.4.3-exp"))
     }
 
     private fun release(tag: String, prerelease: Boolean = false) =
@@ -56,4 +69,18 @@ class GiteeAppUpdaterTest {
         val stable = release("1.4.3")
         assertEquals(stable, GiteeAppUpdater.selectRelease(listOf(stable, release("1.4.3_beta20", true)), true))
     }
+
+    @Test
+    fun beta8UpgradesBeta7WithoutSelectingExperimentalReleases() {
+        val beta8 = release("v1.2.6_beta8", true)
+        val stable = release("v1.2.5")
+        val releases = listOf(release("v1.2.6-exp3", true), release("v1.3.0-exp3"),
+            release("v1.2.6_beta7", true), stable, beta8)
+        assertEquals(beta8, GiteeAppUpdater.selectRelease(releases, true))
+        assertEquals(stable, GiteeAppUpdater.selectRelease(releases, false))
+        assertTrue(GiteeAppUpdater.isVersionNewer(beta8.tagName, "1.2.6_beta7"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.6_beta7", beta8.tagName))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.6-exp3", "1.2.6-exp2"))
+    }
+
 }

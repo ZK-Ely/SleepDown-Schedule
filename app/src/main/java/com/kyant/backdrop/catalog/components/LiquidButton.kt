@@ -2,8 +2,6 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -21,14 +20,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.isSpecified
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,7 +37,6 @@ import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -44,12 +44,15 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCapsuleButtonRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -85,11 +88,33 @@ fun LiquidButton(
     staticPressDimAlpha: Float = 0f,
     shape: Shape = Capsule(),
     clipToBounds: Boolean = false,
+    surfaceEnabled: Boolean = true,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
     sharedInteractiveHighlight: InteractiveHighlight? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
+    flatOpacity: Float? = null,
+    enabled: Boolean = true,
+    nativeDarkOverride: Boolean? = null,
+    preserveMaterialWhenDisabled: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
+    // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
+    // shared gesture shells) retain their own geometry and do not become native click targets.
+    val nativeRenderer = LocalNativeCapsuleButtonRenderer.current
+    if (surfaceEnabled && (clickTargetEnabled || !enabled) && nativeRenderer != null) {
+        val accent = listOf(surfaceColor, tint).firstOrNull { color ->
+            color.isSpecified && color.alpha > 0f &&
+                maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.12f
+        } ?: Color.Unspecified
+        val dark = nativeDarkOverride ?: if (!accent.isSpecified && surfaceColor.isSpecified && surfaceColor.alpha > 0f)
+            surfaceColor.luminance() < 0.5f else MaterialTheme.colorScheme.background.luminance() < 0.5f
+        if (nativeRenderer(NativeCapsuleButtonRequest(onClick, modifier, height, contentPadding, dark,
+                enabled = enabled, primaryColor = accent, acceptsGesture = interactionEnabledAt,
+                preserveMaterialWhenDisabled = preserveMaterialWhenDisabled), content)) {
+            pressSnapshot?.progress = 0f
+            return
+        }
+    }
     val animationScope = rememberCoroutineScope()
     val clickInteractionSource = remember { MutableInteractionSource() }
     val pressed by clickInteractionSource.collectIsPressedAsState()
@@ -204,7 +229,10 @@ fun LiquidButton(
                     null
                 },
                 onDrawSurface = buttonOnDrawSurface,
-                clipToBounds = clipToBounds
+                fallbackColor = surfaceColor.takeIf { it.isSpecified } ?: tint.takeIf { it.isSpecified },
+                fallbackOpacity = flatOpacity,
+                clipToBounds = clipToBounds,
+                renderEnabled = { surfaceEnabled }
             )
             .then(
                 if (!isInteractive && staticPressDimAlpha > 0f) {
@@ -228,6 +256,7 @@ fun LiquidButton(
                             else -> LocalIndication.current
                         },
                         role = Role.Button,
+                        enabled = enabled,
                         onClick = onClick
                     )
                 } else {

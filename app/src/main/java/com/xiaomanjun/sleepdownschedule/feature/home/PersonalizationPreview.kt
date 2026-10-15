@@ -1,13 +1,19 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.*
-
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardAlphaSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardFontSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardRefractionSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBrightnessSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWeekCornerSlider
 
 /** Explicit appearance edits may refresh a frozen scene without replacing its course inputs. */
 internal fun AppState.withPersonalizationConfig(candidate: ScheduleConfigEntity?): AppState =

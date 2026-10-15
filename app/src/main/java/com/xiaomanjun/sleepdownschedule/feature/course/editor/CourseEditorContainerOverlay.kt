@@ -1,59 +1,30 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
-import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
-import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
-import com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments
-import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
-import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
-import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
-import com.xiaomanjun.sleepdownschedule.glass.glassMorphContent
-import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
-import com.kyant.backdrop.backdrops.LayerBackdrop
-
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-
-import com.xiaomanjun.sleepdownschedule.*
-
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
 import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Shader
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.ui.graphics.asComposePath
-import androidx.compose.ui.graphics.asAndroidPath
-import androidx.compose.ui.graphics.addOutline
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,55 +35,71 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassCornerSize
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
+import com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
 import com.xiaomanjun.sleepdownschedule.glass.LiquidBackdropDepthFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidContentHandoffFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidLayerLifecycleFrame
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphSpec
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
 import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.glass.glassMorphContent
+import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
+import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.math.sin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 private val CourseEditorOpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1.0f)
 private val CourseEditorOpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
@@ -185,7 +172,11 @@ data class CourseEditorOverlayRequest(
     val sourceBoundsInRoot: Rect?,
     val sourceIsDayCard: Boolean = false,
     val copyDraft: CourseEntity? = null,
-    internal val sourceGrid: CourseEditorWeekGrid? = null
+    internal val sourceGrid: CourseEditorWeekGrid? = null,
+    val contextMessage: String? = null,
+    val sourceAdjustmentLabel: String? = null,
+    val sourceClipBoundsInRoot: Rect? = null,
+    val sourceDayAppearance: CourseEditorDayAppearance? = null
 )
 
 
@@ -199,7 +190,10 @@ internal class CourseEditorMorphCornerShape(
     private val radiusY: Float,
     private val taper: Float = 0f,
     private val sourceDensity: Float = 1f,
-    topStart: CornerSize = CornerSize((minOf(radiusX, radiusY) / sourceDensity).dp),
+    private val radiusProvider: (() -> Float)? = null,
+    private val taperProvider: (() -> Float)? = null,
+    topStart: CornerSize = radiusProvider?.let { DeferredGlassCornerSize(sourceDensity, it) }
+        ?: CornerSize((minOf(radiusX, radiusY) / sourceDensity).dp),
     topEnd: CornerSize = topStart,
     bottomEnd: CornerSize = topStart,
     bottomStart: CornerSize = topStart
@@ -212,12 +206,14 @@ internal class CourseEditorMorphCornerShape(
         bottomStart: Float,
         layoutDirection: LayoutDirection
     ): Outline {
-        val base = RoundedRectangle(topStart.dp).createOutline(size, layoutDirection, Density(1f))
-        if (taper == 0f) return base
+        val base = RoundedRectangle(topStart.dp)
+            .createOutline(size, layoutDirection, Density(1f))
+        val currentTaper = taperProvider?.invoke() ?: taper
+        if (currentTaper == 0f) return base
         val path = Path().apply { addOutline(base) }.asAndroidPath()
-        if (taper != 0f && size.width > 0f && size.height > 0f) {
+        if (size.width > 0f && size.height > 0f) {
             path.transform(Matrix().apply {
-                setValues(courseEditorTaperTransform(size.width, size.height, taper))
+                setValues(courseEditorTaperTransform(size.width, size.height, currentTaper))
             })
         }
         return Outline.Generic(path.asComposePath())
@@ -233,6 +229,8 @@ internal class CourseEditorMorphCornerShape(
         radiusY = radiusY,
         taper = taper,
         sourceDensity = sourceDensity,
+        radiusProvider = radiusProvider,
+        taperProvider = taperProvider,
         topStart = topStart,
         topEnd = topEnd,
         bottomEnd = bottomEnd,
@@ -240,7 +238,8 @@ internal class CourseEditorMorphCornerShape(
     )
 }
 
-private fun Modifier.courseEditorContentTaper(taper: Float): Modifier = drawWithCache {
+private fun Modifier.courseEditorContentTaper(taperProvider: () -> Float): Modifier = drawWithCache {
+    val taper = taperProvider()
     val transform = if (taper == 0f) null else Matrix().apply {
         setValues(courseEditorTaperTransform(size.width, size.height, taper))
     }
@@ -269,7 +268,9 @@ internal fun CourseEditorContainerOverlayHost(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    sourceCardBackdrop: Backdrop? = backdrop,
     modifier: Modifier = Modifier,
+    landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
@@ -279,6 +280,76 @@ internal fun CourseEditorContainerOverlayHost(
     onRenderedCourseIdChange: (Long?) -> Unit = {},
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
+        var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
+        var copySaving by remember { mutableStateOf(false) }
+        LaunchedEffect(request) {
+            motionState.retractTo(null)
+            motionState.backgroundZoom.snapTo(1f)
+            if (request != null) copySaving = false
+            val phase = if (request != null) CourseEditorOverlayPhase.Opening else
+                if (motionState.phase != CourseEditorOverlayPhase.Idle) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Idle
+            motionState.phase = phase
+            onPhaseChange(phase)
+            motionState.progress.animateTo(
+                if (request != null) 1f else 0f,
+                tween(if (request != null) 280 else 240, easing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f))
+            )
+        }
+        DisposableEffect(Unit) {
+            onDispose {
+                motionState.phase = CourseEditorOverlayPhase.Idle
+                onPhaseChange(CourseEditorOverlayPhase.Idle)
+                onRenderedCourseIdChange(null)
+            }
+        }
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
+            request = request, backdrop = backdrop,
+            contentInsets = landscapeContentInsets,
+            onDismissRequest = { if (!copySaving) dismissHandler?.invoke() ?: onDismissRequest() },
+            onOpenFinished = {
+                motionState.phase = CourseEditorOverlayPhase.Open
+                onPhaseChange(CourseEditorOverlayPhase.Open)
+            },
+            onDismissFinished = {
+                motionState.phase = CourseEditorOverlayPhase.Idle
+                onPhaseChange(CourseEditorOverlayPhase.Idle)
+                onRenderedCourseIdChange(null)
+            }
+        ) { shown, dialogBackdrop ->
+            val editorSurface = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content, providerId = "landscape-course-editor-shell"
+            )
+            val save: (List<CourseEntity>, List<CourseEntity>) -> Unit = { originals, edited ->
+                if (shown.copyDraft == null) onSave(originals, edited, shown.targetWeek)
+                else if (!copySaving) {
+                    copySaving = true
+                    onCopy(edited.map { it.copy(id = 0, scheduleId = shown.copyDraft.scheduleId) }) { success ->
+                        if (!success) copySaving = false
+                    }
+                }
+            }
+            CourseEditorAnimatedContainer(
+                backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
+                muted = shown.sourceAdjustmentLabel == "停",
+                expandedOutlineLight = shown.sourceIsDayCard,
+                shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
+                surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
+            ) {
+            NormalizedCourseEditorScreen(
+                formData = CourseEditorFormData(state.config, state.periods, state.courses),
+                initialCourse = shown.course.takeIf { shown.copyDraft == null },
+                copyDraft = shown.copyDraft, contextMessage = shown.contextMessage,
+                onCancel = { if (!copySaving) onDismissRequest() },
+                onDismissHandlerChange = { dismissHandler = it },
+                onSave = {}, onSaveCourses = { save(emptyList(), it) }, onSaveGroup = save,
+                onDelete = {}, onDeleteGroup = { onDelete(it, shown.targetWeek) },
+                backdrop = editorSurface, pickerRenderInRootScaffold = false
+            )
+            }
+        }
+        return
+    }
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var copySaving by remember(request) { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -393,7 +464,13 @@ internal fun CourseEditorContainerOverlayHost(
             courses = state.courses
         )
     }
-    val dismissEditor = { if (!copySaving) onDismissRequest() }
+    var contentDismissHandler by remember(shownRequest) { mutableStateOf<(() -> Unit)?>(null) }
+    val onDismissHandlerChange = remember(shownRequest) {
+        { handler: (() -> Unit)? -> contentDismissHandler = handler }
+    }
+    val dismissEditor = {
+        if (!copySaving) contentDismissHandler?.invoke() ?: onDismissRequest()
+    }
     val saveEditedCourse = remember(shownRequest, onSave, onCopy) {
         { originals: List<CourseEntity>, edited: List<CourseEntity> ->
             if (shownRequest.copyDraft != null) {
@@ -462,6 +539,7 @@ internal fun CourseEditorContainerOverlayHost(
     // targetWeek is also required when a day-view course is edited, so it cannot identify
     // the visual source. Keep the source layout captured with the request instead.
     val sourceIsWeekCard = !shownRequest.sourceIsDayCard
+    val dayAppearance = shownRequest.sourceDayAppearance
     val previewCornerProgress = LocalPersonalizationPreview.current?.weekCardCornerProgress
         ?: config.weekCardCornerProgress
     val sourceCornerPx = remember(
@@ -469,6 +547,7 @@ internal fun CourseEditorContainerOverlayHost(
         density,
         adaptiveMetrics,
         sourceIsWeekCard,
+        dayAppearance?.cornerRadius,
         previewCornerProgress
     ) {
         with(density) {
@@ -481,7 +560,7 @@ internal fun CourseEditorContainerOverlayHost(
                     progress = previewCornerProgress
                 ).toPx()
             } else {
-                24.dp.toPx()
+                (dayAppearance?.cornerRadius ?: DayCourseCardCornerRadius).toPx()
             }
         }
     }
@@ -504,7 +583,6 @@ internal fun CourseEditorContainerOverlayHost(
             hasSourceTransform = hasSourceTransform
         )
     }
-    val rawProgress = progress.value.coerceIn(0f, 1f)
     val materialEnvelope = remember(morphSpec, sourceRect, targetRect) {
         // A tapered shell cannot be represented by the fixed envelope's rounded-rectangle SDF.
         if (!GlassMotionExperiments.fixedMorph || hasSourceTransform) null else {
@@ -522,35 +600,43 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
         overlayPhase == CourseEditorOverlayPhase.Disposing
-    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: shownRequest.course
-        else shownRequest.course
-    val morphFrame = morphSpec.frame(
-        LiquidMorphInput(
-            source = sourceRect,
-            target = targetRect,
-            rawProgress = rawProgress,
-            direction = if (closingMorph) {
-                LiquidMorphDirection.Closing
-            } else {
-                LiquidMorphDirection.Opening
-            },
-            backdropScale = motionState.backgroundZoom.value,
-            backdropBlurPx = with(density) {
-                22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
-            },
-            useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
-                overlayPhase == CourseEditorOverlayPhase.Opening ||
-                overlayPhase == CourseEditorOverlayPhase.Closing ||
-                overlayPhase == CourseEditorOverlayPhase.Disposing
-        )
-    )
-    val sizeProgress = morphFrame.shapeProgress
-    val animatedRect = morphFrame.rect
-    val materialGeometry = rememberUpdatedState(GlassTransitionGeometry(animatedRect,
-        with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()) }))
-    val fixedMaterialEligible = config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
+    val sourceCourse = dayAppearance?.course ?: shownRequest.course
+    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: sourceCourse else sourceCourse
+    val sourceMuted = dayAppearance?.muted ?: (shownRequest.sourceAdjustmentLabel == "停")
+    val sourceBadge = dayAppearance?.adjustmentLabel ?: shownRequest.sourceAdjustmentLabel
+    val frameState = remember(morphSpec, sourceRect, targetRect, closingMorph, overlayPhase, density, motionState) {
+        derivedStateOf {
+            morphSpec.frame(
+                LiquidMorphInput(
+                    source = sourceRect,
+                    target = targetRect,
+                    rawProgress = progress.value.coerceIn(0f, 1f),
+                    direction = if (closingMorph) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening,
+                    backdropScale = motionState.backgroundZoom.value,
+                    backdropBlurPx = with(density) {
+                        22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
+                    },
+                    useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
+                        overlayPhase == CourseEditorOverlayPhase.Opening ||
+                        overlayPhase == CourseEditorOverlayPhase.Closing ||
+                        overlayPhase == CourseEditorOverlayPhase.Disposing
+                )
+            )
+        }
+    }
+    val morphFrame by frameState
+    val materialGeometry = remember(frameState, density) {
+        derivedStateOf {
+            GlassTransitionGeometry(
+                morphFrame.rect,
+                with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()) }
+            )
+        }
+    }
+    val fixedMaterialEligible = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().denseMaterials &&
+        config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
         backdrop != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-    val materialAllocation = remember(materialEnvelope, overlayPhase, config.courseCardBlur, density.density, fixedMaterialEligible) {
+    val materialAllocation = remember(materialEnvelope, materialGeometry, overlayPhase, config.courseCardBlur, density.density, fixedMaterialEligible) {
         if (materialEnvelope == null || overlayPhase == CourseEditorOverlayPhase.Open ||
             !fixedMaterialEligible) null else {
             GlassMorphAllocation(materialEnvelope, { materialGeometry.value },
@@ -559,42 +645,83 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val animatedModifier = Modifier
         .offset {
+            val animatedRect = morphFrame.rect
             IntOffset(
                 animatedRect.left.roundToInt(),
                 animatedRect.top.roundToInt()
             )
         }
-        .size(
-            width = with(density) { animatedRect.width.toDp() },
-            height = with(density) { animatedRect.height.toDp() }
-        )
-    val corner = with(density) {
-        morphFrame.cornerRadiusPx
-            .coerceIn(6.dp.toPx(), 36.dp.toPx())
-            .toDp()
+        .layout { measurable, constraints ->
+            val rect = morphFrame.rect
+            val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+            val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+            val placeable = measurable.measure(Constraints.fixed(width, height))
+            layout(width, height) { placeable.place(0, 0) }
+        }
+    val corner = remember(frameState, density, sourceIsWeekCard, sourceCornerPx, sourceRect) {
+        derivedStateOf {
+            with(density) {
+                val radius = if (sourceIsWeekCard) morphFrame.cornerRadiusPx else {
+                    courseEditorDayCornerRadius(
+                        sourceCornerPx, courseEditorDaySourceScale(sourceRect, morphFrame.rect),
+                        32.dp.toPx(), morphFrame.content.destinationContentAlpha
+                    )
+                }
+                radius.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp()
+            }
+        }
     }
     // A copy can land elsewhere, but its upper/lower taper still follows the opening source.
     val openingSource = validSourceRect(shownRequest.sourceBoundsInRoot, rootSize)
-    val taper = if (openingSource != null && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
-        courseEditorOpeningTaper(rawProgress, openingSource.center.y - targetRect.center.y,
-            targetRect.height, closing = closingMorph)
-    } else 0f
-    val shellShape = remember(corner, density.density, taper) {
-        with(density) {
-            CourseEditorMorphCornerShape(corner.toPx(), corner.toPx(), taper, sourceDensity = density.density)
+    val taper = remember(openingSource, targetRect, overlayPhase, closingMorph, progress) {
+        derivedStateOf {
+            if (openingSource != null && (overlayPhase == CourseEditorOverlayPhase.Opening || closingMorph)) {
+                courseEditorOpeningTaper(
+                    progress.value.coerceIn(0f, 1f),
+                    openingSource.center.y - targetRect.center.y,
+                    targetRect.height,
+                    closing = closingMorph
+                )
+            } else 0f
         }
     }
-    val morphSurfaceAlpha = 1f
-    val sourceCoverAlpha = if (hasSourceTransform) {
-        when (overlayPhase) {
-            CourseEditorOverlayPhase.Preparing,
-            CourseEditorOverlayPhase.Opening -> morphFrame.content.sourceAlpha
-            CourseEditorOverlayPhase.Closing,
-            CourseEditorOverlayPhase.Disposing -> morphFrame.content.sourceAlpha
-            else -> 0f
+    val shellShape = remember(corner, density.density, taper) {
+        with(density) {
+            CourseEditorMorphCornerShape(
+                32.dp.toPx(), 32.dp.toPx(), sourceDensity = density.density,
+                radiusProvider = { corner.value.toPx() }, taperProvider = { taper.value }
+            )
         }
-    } else 0f
-    val sourceContentBlurPx = morphFrame.content.sourceBlurPx
+    }
+    // Day cards sample only wallpaper. Start from those same pixels before introducing the
+    // complete page underlay, rather than replacing a stopped card's material at the first frame.
+    val blendedMorphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
+        source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
+        destination = backdrop,
+        progress = { smoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
+    )
+    // A wrapper around the wallpaper breaks CourseGlassCard's shared-blur identity check.
+    // Start with the clicked day card's actual input and sampling path, then hand off to
+    // the screen-space scene. This also keeps stopped cards' complete material at frame 0.
+    val morphBackdrop = if (shownRequest.sourceIsDayCard && morphFrame.shapeProgress <= 0.12f &&
+        dayAppearance != null) dayAppearance.backdrop else blendedMorphBackdrop
+    val morphSurfaceAlpha = 1f
+    val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
+        derivedStateOf {
+            if (hasSourceTransform) {
+                when (overlayPhase) {
+                    CourseEditorOverlayPhase.Preparing,
+                    CourseEditorOverlayPhase.Opening,
+                    CourseEditorOverlayPhase.Closing,
+                    CourseEditorOverlayPhase.Disposing -> morphFrame.content.sourceAlpha
+                    else -> 0f
+                }
+            } else 0f
+        }
+    }
+    val showSourceCover by remember(sourceCoverAlpha) {
+        derivedStateOf { sourceCoverAlpha.value > 0.001f }
+    }
     val editorFormBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "course-editor-shell"
@@ -609,6 +736,28 @@ internal fun CourseEditorContainerOverlayHost(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
+            .drawWithContent {
+                val sourceClip = shownRequest.sourceClipBoundsInRoot
+                    ?.takeIf { sourceRect == shownRequest.sourceBoundsInRoot }
+                if (sourceClip == null || sourceClip == sourceRect || morphFrame.shapeProgress >= 0.999f) {
+                    drawContent()
+                } else {
+                    // Keep the LazyColumn's cropped edges at the source endpoint, then release
+                    // them with the morph. Geometry and text still use the full original card.
+                    val rect = morphFrame.rect
+                    val remaining = 1f - morphFrame.shapeProgress.coerceIn(0f, 1f)
+                    clipRect(
+                        left = if (sourceClip.left > sourceRect.left)
+                            rect.left + (sourceClip.left - sourceRect.left) * remaining else 0f,
+                        top = if (sourceClip.top > sourceRect.top)
+                            rect.top + (sourceClip.top - sourceRect.top) * remaining else 0f,
+                        right = if (sourceClip.right < sourceRect.right)
+                            rect.right - (sourceRect.right - sourceClip.right) * remaining else size.width,
+                        bottom = if (sourceClip.bottom < sourceRect.bottom)
+                            rect.bottom - (sourceRect.bottom - sourceClip.bottom) * remaining else size.height
+                    ) { this@drawWithContent.drawContent() }
+                }
+            }
     ) {
         Box(
             modifier = Modifier
@@ -619,11 +768,13 @@ internal fun CourseEditorContainerOverlayHost(
                 ) { dismissEditor() }
         )
         CourseEditorAnimatedContainer(
-            backdrop = backdrop,
+            backdrop = morphBackdrop,
             config = config,
             course = shellCourse,
+            muted = sourceMuted,
+            expandedOutlineLight = shownRequest.sourceIsDayCard,
             shape = shellShape,
-            progress = sizeProgress,
+            progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
             surfaceBackdrop = editorFormBackdrop,
             modifier = if (materialAllocation == null) animatedModifier else Modifier.glassMorphHost(materialAllocation),
@@ -634,37 +785,82 @@ internal fun CourseEditorContainerOverlayHost(
                     .fillMaxSize()
                     .then(if (materialAllocation != null) Modifier.glassMorphContent(materialAllocation) else Modifier)
                     .clip(shellShape)
-                    .courseEditorContentTaper(taper)
+                    .courseEditorContentTaper { taper.value }
             ) {
                 if (request != null && editorContentMounted && overlayPhase == CourseEditorOverlayPhase.Open) {
                     CourseEditorFormLayer(
                         targetRect = targetRect,
-                        corner = corner,
+                        corner = corner.value,
                         textColor = textColor,
                         formData = formData,
                         course = shownRequest.course,
                         copyDraft = shownRequest.copyDraft,
+                        contextMessage = shownRequest.contextMessage,
                         backdrop = editorFormBackdrop,
-                        onDismissRequest = dismissEditor,
+                        onDismissRequest = { if (!copySaving) onDismissRequest() },
+                        onDismissHandlerChange = onDismissHandlerChange,
                         onSave = saveEditedCourse,
                         onDelete = deleteEditedCourse
                     )
                 }
-                if (sourceCoverAlpha > 0.001f) {
+                if (showSourceCover) {
                     CourseEditorSourceShell(
                         course = shellCourse,
-                        backdrop = backdrop,
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
                         adaptiveMetrics = adaptiveMetrics,
+                        adjustmentLabel = sourceBadge,
+                        dayAppearance = dayAppearance,
+                        muted = sourceMuted,
+                        sourceCorner = with(density) { sourceCornerPx.toDp() },
                         modifier = Modifier
-                            .fillMaxSize()
+                            // Measure the source once at its original card size. In particular,
+                            // stopped day cards must not rewrap their text as the shell widens.
+                            .wrapContentSize(Alignment.TopStart, unbounded = true)
+                            .requiredSize(
+                                with(density) { sourceRect.width.toDp() },
+                                with(density) { sourceRect.height.toDp() }
+                            )
                             .graphicsLayer {
-                                alpha = sourceCoverAlpha
-                                val blurPx = sourceContentBlurPx
+                                transformOrigin = TransformOrigin(0f, 0f)
+                                scaleX = morphFrame.rect.width / sourceRect.width
+                                // A day card is much shorter than the destination. Scaling Y
+                                // independently changes glyph proportions and line spacing.
+                                scaleY = if (sourceIsWeekCard) morphFrame.rect.height / sourceRect.height
+                                    else courseEditorDaySourceScale(sourceRect, morphFrame.rect)
+                                alpha = sourceCoverAlpha.value
+                                val blurPx = morphFrame.content.sourceBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen
                                 renderEffect = platformBlurRenderEffect(blurPx)
                             }
+                    )
+                }
+            }
+        }
+        if (showSourceCover && sourceBadge != null) {
+            // The original badge straddles the card's rounded edge. Keep its clone outside
+            // the shell clip too, otherwise a stopped/makeup card starts with a cut-off badge.
+            Box(animatedModifier.graphicsLayer {
+                alpha = sourceCoverAlpha.value
+                // Modulate the vector label directly so alpha does not crop its small outset.
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }.courseEditorContentTaper { taper.value }) {
+                // The day source's text keeps its original height and scales uniformly. Keep
+                // its badge on that same source card, instead of pinning it to the growing
+                // editor bottom and sending it along a different path from the source glyphs.
+                val badgeSourceModifier = if (sourceIsWeekCard) Modifier.fillMaxSize() else Modifier
+                    .wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .requiredSize(with(density) { sourceRect.width.toDp() }, with(density) { sourceRect.height.toDp() })
+                    .graphicsLayer {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = courseEditorDaySourceScale(sourceRect, morphFrame.rect)
+                        scaleY = scaleX
+                    }
+                Box(badgeSourceModifier) {
+                    com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
+                        sourceBadge, backdrop, config,
+                        Modifier.align(Alignment.BottomEnd)
+                            .courseBadgeCornerAnchor(if (sourceIsWeekCard) corner.value else with(density) { sourceCornerPx.toDp() })
                     )
                 }
             }
@@ -680,8 +876,10 @@ private fun CourseEditorFormLayer(
     formData: CourseEditorFormData,
     course: CourseEntity,
     copyDraft: CourseEntity?,
+    contextMessage: String?,
     backdrop: Backdrop?,
     onDismissRequest: () -> Unit,
+    onDismissHandlerChange: ((() -> Unit)?) -> Unit,
     onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
     onDelete: (List<CourseEntity>) -> Unit
 ) {
@@ -739,7 +937,9 @@ private fun CourseEditorFormLayer(
                             formData = formData,
                             initialCourse = course.takeIf { copyDraft == null },
                             copyDraft = copyDraft,
+                            contextMessage = contextMessage,
                             onCancel = onDismissRequest,
+                            onDismissHandlerChange = onDismissHandlerChange,
                             onSave = {},
                             onSaveCourses = { onSave(emptyList(), it) },
                             onSaveGroup = onSave,
@@ -778,8 +978,10 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
+    muted: Boolean,
+    expandedOutlineLight: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
-    progress: Float,
+    progressProvider: () -> Float,
     alpha: Float,
     surfaceBackdrop: LayerBackdrop,
     modifier: Modifier = Modifier,
@@ -787,19 +989,48 @@ private fun CourseEditorAnimatedContainer(
     content: @Composable () -> Unit
 ) {
     val finalDialogBlur = 22f
-    val editorBlur = interpolateFloat(
-        config.courseCardBlur,
-        finalDialogBlur,
-        smoothStep(0.62f, 1f, progress)
-    )
+    val currentProgress = rememberUpdatedState(progressProvider)
+    val editorBlur by remember(config.courseCardBlur) {
+        derivedStateOf {
+            interpolateFloat(config.courseCardBlur, finalDialogBlur,
+                quantizeHomeProgressiveBackdropBlurProgress(
+                    smoothStep(0.62f, 1f, currentProgress.value.invoke())
+                ))
+        }
+    }
+    val flatEditorOpacity by remember(config.courseCardBlur, config.courseCardGlassEnabled) {
+        derivedStateOf {
+            interpolateFloat(
+                com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.opacity(
+                    config.courseCardBlur, com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled)),
+                com.xiaomanjun.sleepdownschedule.glass.FlatControlOpacity,
+                smoothStep(0.12f, 0.62f, currentProgress.value.invoke())
+            )
+        }
+    }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
-        modifier = modifier.graphicsLayer { this.alpha = alpha },
+        muted = muted,
+        flatOpacityOverride = flatEditorOpacity,
+        expandedOutlineLight = expandedOutlineLight,
+        followTouch = true,
+        modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
+            // Keep the shell's outline in the parent recording across the fixed-allocation
+            // handoff. Child RenderNodes may otherwise replay rectangular pixels for one frame
+            // when their placement layer is removed at Open.
+            val bounds = morphAllocation?.localBounds() ?: Rect(0f, 0f, size.width, size.height)
+            val outline = Path().apply {
+                addOutline(shape.createOutline(bounds.size, layoutDirection, this@drawWithCache))
+                translate(bounds.topLeft)
+            }
+            onDrawWithContent { clipPath(outline) { this@onDrawWithContent.drawContent() } }
+        },
         shape = shape,
         blurOverride = editorBlur,
-        backdropSampleScale = 0.5f,
+        cacheSharedSamples = !expandedOutlineLight,
+        backdropSampleScale = if (expandedOutlineLight && currentProgress.value.invoke() <= 0.12f) 1f else 0.5f,
         sampledShape = shape,
         surfaceBackdrop = surfaceBackdrop,
         morphAllocation = morphAllocation
@@ -813,211 +1044,33 @@ private fun CourseEditorAnimatedContainer(
 @Composable
 private fun CourseEditorSourceShell(
     course: CourseEntity,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     sourceIsWide: Boolean,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    adjustmentLabel: String?,
+    dayAppearance: CourseEditorDayAppearance?,
+    muted: Boolean,
+    sourceCorner: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     Box(modifier) {
+        val badgeInset = if (adjustmentLabel != null) com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset(
+            with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, sourceCorner
+        ) else 0.dp
         if (sourceIsWide) {
-            CourseEditorDaySourceContent(
+            DayCourseCardContent(
                 course = course,
-                backdrop = backdrop,
+                periods = dayAppearance?.periods.orEmpty(),
+                showTime = dayAppearance?.showTime ?: false,
+                showWeeks = dayAppearance?.showWeeks ?: false,
                 config = config,
-                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                tabletFontScale = dayAppearance?.tabletFontScale ?: if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                muted = muted,
+                adjustmentLabel = adjustmentLabel
             )
         } else {
-            CourseEditorWeekSourceContent(course, backdrop, config)
-        }
-    }
-}
-
-@Composable
-private fun CourseEditorDaySourceContent(
-    course: CourseEntity,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    tabletFontScale: Float
-) {
-    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
-    val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(cardColor)
-        else glassForegroundColor(config)
-    DayCourseCardTextContent(
-        course = course,
-        periods = emptyList(),
-        showTime = false,
-        showWeeks = false,
-        textColor = textColor,
-        tabletFontScale = tabletFontScale,
-        config = config
-    )
-}
-
-@Composable
-private fun CourseEditorWeekSourceContent(
-    course: CourseEntity,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity
-) {
-    val locationText = course.location.orEmpty()
-    val hasLocation = locationText.isNotBlank()
-    val hasTeacher = !course.teacher.isNullOrBlank()
-    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
-    val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(cardColor)
-        else glassForegroundColor(config)
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val heightDp = maxHeight.value
-        val widthDp = maxWidth.value
-        val compact = heightDp < 78f
-        val tiny = heightDp < 52f
-        val verticalPadding = when {
-            tiny -> 1.dp
-            compact -> 2.dp
-            else -> 2.5.dp
-        }
-        val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-        val tabletFontBoost = if (maxWidth >= 120.dp) 1.18f else 1f
-        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
-        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
-            .coerceIn(0.80f, 1.35f)
-        fun scaledCourseWeekText(value: TextUnit): TextUnit {
-            return (value.value * courseFontScale / fontScaleCompensation.coerceAtLeast(1f)).sp
-        }
-        val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
-        val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
-        val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
-        val locationLineHeight = scaledCourseWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
-        val teacherFont = scaledCourseWeekText(8.4.sp)
-        val teacherLineHeight = scaledCourseWeekText(7.9.sp)
-        val contentWidthPx = with(density) { (maxWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-        val availableTextPx = with(density) { (maxHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
-
-        fun estimatedLines(text: String, fontSize: TextUnit): Int {
-            if (text.isBlank()) return 0
-            val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
-            val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
-            return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
-        }
-
-        val canShowTeacher = hasTeacher && heightDp >= 52f
-        val teacherLines = if (canShowTeacher) 1 else 0
-        val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
-        val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
-        val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
-        val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-        val maxNameLines = when {
-            heightDp >= 150f -> 12
-            heightDp >= 112f -> 9
-            heightDp >= 78f -> 6
-            else -> 4
-        }
-        val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
-        val wantedLocationLines = if (hasLocation) {
-            estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
-        } else {
-            0
-        }
-        val nameMinimum = 1
-        val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
-        var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
-        var nameLines = nameMinimum
-        var locationLines = locationMinimum
-        var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
-        var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
-        while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
-            if (nameNeed >= locationNeed && nameNeed > 0) {
-                nameLines += 1
-                nameNeed -= 1
-            } else if (locationNeed > 0) {
-                locationLines += 1
-                locationNeed -= 1
-            } else {
-                nameLines += 1
-                nameNeed -= 1
-            }
-            remainingSlots -= 1
-        }
-        if (remainingSlots > 0 && nameLines < maxNameLines) {
-            val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
-            nameLines += extraNameLines
-            remainingSlots -= extraNameLines
-        }
-        if (remainingSlots > 0 && hasLocation) {
-            locationLines += remainingSlots
-        }
-        if (tiny && hasLocation) {
-            locationLines = 1
-            nameLines = (totalSlots - locationLines).coerceAtLeast(1)
-        }
-
-        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
-        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
-            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
-        } else {
-            0.dp
-        }
-        val teacherReserve = if (canShowTeacher) {
-            with(density) { teacherLineHeight.toPx().toDp() }
-        } else {
-            0.dp
-        }
-        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-        ) {
-            if (hasLocation && locationLines > 0) {
-                Text(
-                    locationText,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth(),
-                    fontSize = locationFont,
-                    lineHeight = locationLineHeight,
-                    fontWeight = FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.78f),
-                    maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
-            Text(
-                course.name,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(vertical = centerReserve),
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            if (canShowTeacher) {
-                Text(
-                    course.teacher,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    fontSize = teacherFont,
-                    lineHeight = teacherLineHeight,
-                    fontWeight = FontWeight.Normal,
-                    color = textColor.copy(alpha = 0.58f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
+            com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent(
+                course, config, muted = muted, badgeInset = badgeInset)
         }
     }
 }
@@ -1027,16 +1080,9 @@ private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     if (rootSize.width <= 0 || rootSize.height <= 0) return null
     val root = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     if (!rect.overlaps(root)) return null
-    // The full-screen snapshot is clipped to the Compose root. Keep the Morph geometry on the
-    // exact same clipped rectangle; otherwise a partially off-screen card produces a smaller
-    // bitmap that is stretched back over its original, larger bounds on the first/last frame.
-    val clipped = Rect(
-        left = maxOf(rect.left, root.left),
-        top = maxOf(rect.top, root.top),
-        right = minOf(rect.right, root.right),
-        bottom = minOf(rect.bottom, root.bottom)
-    )
-    return clipped.takeIf { it.width > 2f && it.height > 2f }
+    // The source is now rendered as a real card, not a cropped screenshot. Preserve its
+    // geometry; the window clips pixels outside the root without stretching the remainder.
+    return rect
 }
 
 private fun interpolateFloat(start: Float, stop: Float, fraction: Float): Float {

@@ -1,25 +1,24 @@
 package com.xiaomanjun.sleepdownschedule.transition
 
-import com.xiaomanjun.sleepdownschedule.transition.legacy.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.DetailActivityFloatingOverlayHost
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
-
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.DetailActivityFloatingOverlayHost
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
+import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 /**
  * Destination-side arbitration between a native leash and the validated SleepDown Morph. During
  * registration the renderer holds the exact source frame; only the matching session callback can
@@ -39,9 +38,10 @@ fun CrossActivityTransitionHost(
     val session = remember(sessionId) { TransitionPayloadStore.session(sessionId) }
     val payload = remember(sessionId) { TransitionPayloadStore.payload(sessionId) }
     val routeId = session?.routeId ?: activity.intent.transitionRouteIdOrNull()
-    val profile = routeId
+    val legacyProfile = routeId
         ?.let(TransitionRouteCatalog::get)
-        ?.legacyProfile as? LegacyTransitionProfile.Anchored
+        ?.legacyProfile
+    val profile = legacyProfile as? LegacyTransitionProfile.Anchored
     val state = if (session != null) {
         val observed by session.state.collectAsState()
         observed
@@ -67,12 +67,16 @@ fun CrossActivityTransitionHost(
                 .fillMaxSize()
                 .graphicsLayer { clip = false }
         ) {
-            if (routeId == TransitionRouteId.TabletHomeToCourseManagement ||
+            if (legacyProfile == LegacyTransitionProfile.PlatformDefault ||
+                legacyProfile is LegacyTransitionProfile.Depth ||
+                (legacyProfile != LegacyTransitionProfile.Page &&
+                    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) ||
+                routeId == TransitionRouteId.TabletHomeToCourseManagement ||
                 routeId == TransitionRouteId.TabletHomeToEduImport
             ) {
                 val requestClose: () -> Unit = {
                     latestOnFinished()
-                    activity.finish()
+                    ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
                 }
                 LaunchedEffect(sessionId) {
                     ActivityTransitionCoordinator.markOpen(sessionId)
@@ -87,9 +91,11 @@ fun CrossActivityTransitionHost(
                     ?: profile?.sourceCornerRadiusDp
                     ?: 0f).dp,
                 backgroundSnapshot = payload?.backgroundBitmap,
+                backgroundDialog = payload?.backgroundDialog,
                 sourceSnapshot = openingAnchor?.bitmap,
                 collapseSnapshot = returnAnchor?.bitmap,
                 motionStyle = profile?.profileId.toMotionStyle(),
+                animateWithoutAnchor = legacyProfile == LegacyTransitionProfile.Page,
                 destinationFirstOpening = profile?.destinationFirstOpening == true,
                 openingMode = openingMode,
                 openingReady = openingReady,

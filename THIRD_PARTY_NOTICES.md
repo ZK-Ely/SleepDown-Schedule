@@ -14,6 +14,24 @@ The reference repository was reviewed at commit
 radial sampling and denoise passes, and uses its Backdrop 2 per-node shader cache,
 full-resolution coordinates and shared glass surface entry point.
 
+The optional Xiaomi notification workaround and focus-notification field layout
+were independently implemented after reviewing NexioSchedule's Shizuku and
+island notification approach at commit
+`5e12725df66bb7a3a4a9ab346bdc93e6d1f84927`. No Nexio Shizuku or island
+notification source file was copied into this project.
+
+Course text color tuning and Xiaomi R8 boundaries were reviewed against NexioSchedule
+commit `f2c4ab6def84b5be8a5969ce6e46dcabb2a1cac4`. SleepDown implements its own HSV
+brightness floor and saturation adjustment, combined with local sampled soft shadows;
+the source files and notification implementation were not copied.
+
+## RikkaApps/Shizuku-API
+
+The GitHub distribution uses [Shizuku-API](https://github.com/RikkaApps/Shizuku-API)
+version 13.1.5 for the optional Xiaomi notification workaround.
+
+License: MIT License. The store distribution does not include this dependency.
+
 ## Kyant0/AndroidLiquidGlass
 
 Portions of the liquid glass catalog component code are based on
@@ -41,10 +59,25 @@ its popup host so backdrop consumers do not sample a producer that contains
 themselves. The patch base, application order and scope are documented in
 `patches/README.md`; the original package names and license headers are retained.
 
-## xingheyuzhuan/shiguang_warehouse
+## ShiGuangSchedule/shiguang_warehouse
 
 Education-system adapter indexes, YAML configuration and JavaScript resources
 under `app/src/main/assets/shiguang_warehouse-main/` are based on
-[xingheyuzhuan/shiguang_warehouse](https://github.com/xingheyuzhuan/shiguang_warehouse).
+[ShiGuangSchedule/shiguang_warehouse](https://github.com/ShiGuangSchedule/shiguang_warehouse).
 
 License: MIT License.
+
+The auto-refresh adapter catalog and its selected scripts were reviewed against
+upstream commit `fa7cbc2ea116e5ffd082a9fe8cb7bdf4407a8713`. The selection criteria,
+source paths and verification scope are recorded in
+[`docs/reports/2026-09-22-auto-refresh-beta9.md`](docs/reports/2026-09-22-auto-refresh-beta9.md).
+Original script headers and the upstream license are retained.
+
+## Square OkHttp / Okio
+
+The WebDAV transport uses [OkHttp](https://github.com/square/okhttp) 4.12.0
+and its [Okio](https://github.com/square/okio) dependency.
+
+License: Apache License, Version 2.0. Upstream license texts are available in
+[OkHttp LICENSE.txt](https://github.com/square/okhttp/blob/parent-4.12.0/LICENSE.txt)
+and [Okio LICENSE.txt](https://github.com/square/okio/blob/master/LICENSE.txt).

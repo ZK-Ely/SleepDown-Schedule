@@ -1,7 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.feature.reminder
 
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
+import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -18,6 +25,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.service.notification.Condition
@@ -49,8 +57,20 @@ object NotificationScheduler {
     private const val KEY_DND_ENABLED_BY_APP = "dnd_enabled_by_app"
     private const val KEY_DND_RULE_ID = "dnd_rule_id"
     private const val KEY_DND_RULE_MIGRATED = "dnd_rule_migrated"
+    private const val KEY_DND_PREVIOUS_FILTER = "dnd_previous_filter"
+    private const val KEY_DND_APPLIED_FILTER = "dnd_applied_filter"
+    private const val KEY_DND_BOOT_COUNT = "dnd_boot_count"
+    private const val KEY_DND_OVERRIDDEN = "dnd_overridden"
     private const val DND_RULE_NAME = "SleepDown 课程勿扰"
     private const val LIVE_UPDATE_ID = 20260522
+    private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
+    private const val SUPER_ISLAND_ID = 20260524
+    private const val SUPER_ISLAND_ALTERNATE_ID = 20260525
+    private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
+    private const val EXTRA_ISLAND_PREVIEW = "sleepdown.island_preview"
+    private const val SUPER_ISLAND_TEST_ID = 20261008
+    private const val SUPER_ISLAND_TEST_ALTERNATE_ID = 20261009
+    private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
     private const val EVENT_COURSE = "course"
     private const val EVENT_TOMORROW = "tomorrow"
@@ -97,25 +117,46 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         forceReschedule: Boolean = false
     ) = refreshMutex.withLock {
+        CourseQuietScheduler.refresh(context, AppState(courses = courses, config = config, periods = periods), forceReschedule)
+        val effectiveConfig = ColorOSCourseExperiment.suppressLiveUpdate(context, config)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val liveUpdatePreferences = LiveUpdatePreferences.read(context)
-        val signature = scheduleSignature(courses, config, periods, liveUpdatePreferences = liveUpdatePreferences) +
+        val signature = scheduleSignature(courses, effectiveConfig, periods, liveUpdatePreferences = liveUpdatePreferences) +
             "|exact=${canScheduleExactCourseAlarms(context)}"
         val todayIsInTerm = scheduleWeekForDateOrNull(
-            config,
+            effectiveConfig,
             LocalDate.now()
         ) != null
         if (forceReschedule || !todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
             // Always clear stale alarms outside the term, even if this process has
             // already seen today's signature before the boundary check was fixed.
-            scheduleToday(context, courses, config, periods, liveUpdatePreferences)
+            scheduleToday(context, courses, effectiveConfig, periods, liveUpdatePreferences)
             prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
         LiveUpdateRecoveryWorker.updateSchedule(
-            context, config.notificationsEnabled && config.notificationMode == NotificationMode.LIVE_UPDATE
+            context, effectiveConfig.notificationsEnabled && effectiveConfig.notificationMode == NotificationMode.LIVE_UPDATE
         )
-        withContext(Dispatchers.Main.immediate) {
-            checkImmediateLiveUpdate(context, courses, config, periods)
+        if (effectiveConfig.notificationsEnabled &&
+            effectiveConfig.notificationMode == NotificationMode.LIVE_UPDATE &&
+            liveUpdatePreferences.duringClassEnabled && XiaomiSuperIsland.isEnabled(context)
+        ) {
+            val zone = ZoneId.systemDefault()
+            val now = System.currentTimeMillis()
+            val state = AppState(courses = courses, config = effectiveConfig, periods = periods)
+            val payloads = (0L..1L).flatMap { dayOffset ->
+                val date = LocalDate.now(zone).plusDays(dayOffset)
+                coursesForDate(state, date)
+                    .flatMap { courseReminderSessions(it, periods) }
+                    .mapNotNull { course ->
+                        coursePayload(date, course, effectiveConfig, periods, liveUpdatePreferences, zone)
+                    }
+            }
+            LiveUpdateRecoveryWorker.scheduleIslandCheckpoint(
+                context, nextIslandRecoveryAt(now, payloads)
+            )
+        }
+        withContext(Dispatchers.IO) {
+            checkImmediateLiveUpdate(context, courses, effectiveConfig, periods)
         }
     }
 
@@ -136,6 +177,7 @@ object NotificationScheduler {
         val now = System.currentTimeMillis()
         val scheduleZone = ZoneId.systemDefault()
         val today = LocalDate.now(scheduleZone)
+        val cloudHandlesPreClass = ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context)
         val scheduledKeys = mutableListOf<String>()
         (0L..SCHEDULE_HORIZON_DAYS).forEach { dayOffset ->
             val scheduleDate = today.plusDays(dayOffset)
@@ -154,7 +196,7 @@ object NotificationScheduler {
                 val reminderTrigger = firstStart - config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L
                 // Allow-while-idle alarms share a per-app Doze quota. Speculative 1/3/5-minute
                 // retries can postpone the real class boundary; schedule only meaningful events.
-                if (reminderTrigger > now && reminderTrigger < finalEnd) {
+                if (reminderTrigger > now && reminderTrigger < finalEnd && !cloudHandlesPreClass) {
                     schedulePayloadAlarm(
                         context = context,
                         alarmManager = alarmManager,
@@ -261,6 +303,7 @@ object NotificationScheduler {
                     it.weeks.joinToString(","),
                     it.customStartTime.orEmpty(),
                     it.customEndTime.orEmpty(),
+                    courseTimeSegments(it, periods).joinToString(",") { bell -> "${bell.index},${bell.start}-${bell.end}" },
                     it.weekParity.name
                 ).joinToString(":")
             }
@@ -273,9 +316,11 @@ object NotificationScheduler {
             config.currentWeek,
             config.termStartDate.orEmpty(),
             config.autoCurrentWeek,
+            encodeScheduleAdjustments(decodeScheduleAdjustments(config.scheduleAdjustmentsJson)),
             config.notificationsEnabled,
             config.notificationLeadMinutes,
             config.notificationMode.name,
+            config.periodAlignmentMode.name,
             config.liveUpdateActionsEnabled,
             config.liveUpdateChipTextMode.name,
             liveUpdatePreferences?.duringClassEnabled,
@@ -314,11 +359,16 @@ object NotificationScheduler {
     }
 
     fun checkImmediateLiveUpdate(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
-        // 显式关闭（总开关/实时活动按钮）优先于预览保护：否则预览存活期间
+        // [fork] 显式关闭（总开关/实时活动按钮）优先于预览保护：否则预览存活期间
         // 这些开关的取消路径会被 keep 直接跳过，表现为设置项失效
+        if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
+            cancelLiveUpdateNotifications(context)
+            stopLiveUpdateService(context)
+            return
+        }
         if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE || !config.liveUpdateActionsEnabled) {
             Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}, actions=${config.liveUpdateActionsEnabled}")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context, includePreview = !XiaomiSuperIsland.hasActivePreview(context))
             stopLiveUpdateService(context)
             return
         }
@@ -328,7 +378,7 @@ object NotificationScheduler {
         }
         if (!canPostNotifications(context)) {
             Log.w(TAG, "skip immediate live update: notification delivery unavailable")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
@@ -337,9 +387,14 @@ object NotificationScheduler {
         val today = LocalDate.now(zone)
         val state = AppState(courses = courses, config = config, periods = periods)
         val preferences = LiveUpdatePreferences.read(context)
+        val cloudHandlesPreClass = ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context)
         val activePayload = coursesForDate(state, today)
             .flatMap { courseReminderSessions(it, periods) }
             .mapNotNull { course -> coursePayload(today, course, config, periods, preferences, zone) }
+            .filter { payload ->
+                !cloudHandlesPreClass ||
+                    (payload.startAtMillis() ?: Long.MAX_VALUE) <= nowMillis
+            }
             .let { selectImmediateCoursePayload(it, nowMillis, config.notificationLeadMinutes) }
             ?: immediateTomorrowPayload(
                 state = state,
@@ -349,17 +404,22 @@ object NotificationScheduler {
                 zone = zone
             )
         if (activePayload == null) {
+            if (isPreviewLiveUpdateRunning(context)) {
+                Log.d(TAG, "keep preview live update while app state refreshes")
+                return
+            }
             Log.d(TAG, "skip immediate live update: no active course or tomorrow reminder")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
             return
         }
         if (isMutedForPayload(context, activePayload, nowMillis)) {
             Log.d(TAG, "skip immediate live update: muted key=${activePayload.muteKey}")
-            NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+            cancelLiveUpdateNotifications(context, includePreview = !XiaomiSuperIsland.hasActivePreview(context))
             stopLiveUpdateService(context)
             return
         }
+        // Real courses and test previews use separate slots, so either can update independently.
         startLiveUpdateService(context, activePayload)
     }
 
@@ -382,6 +442,23 @@ object NotificationScheduler {
                     else -> 2
                 }
             }.thenBy { it.startAtMillis() })
+
+    /** A small set of in-class WorkManager checks repairs a missed boundary alarm. */
+    internal fun nextIslandRecoveryAt(nowMillis: Long, payloads: List<LiveUpdatePayload>): Long? {
+        val firstDelay = 2 * 60_000L
+        val interval = 20 * 60_000L
+        return payloads.asSequence()
+            .filter { it.kind == LiveUpdateKind.COURSE && it.duringClassEnabled && !it.isPreview() }
+            .flatMap { it.segments.asSequence() }
+            .mapNotNull { segment ->
+                val first = segment.startAtMillis + firstDelay
+                val next = if (nowMillis < first) first else {
+                    first + ((nowMillis - first) / interval + 1L) * interval
+                }
+                next.takeIf { it < segment.endAtMillis }
+            }
+            .minOrNull()
+    }
 
     private fun cancelPreviouslyScheduled(context: Context, alarmManager: AlarmManager) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -529,23 +606,10 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<LiveUpdateSegment> {
-        course.customTimeRangeOrNull()?.let { (start, end) ->
-            return listOf(
-                LiveUpdateSegment(
-                    date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                    date.atTime(end).atZone(zone).toInstant().toEpochMilli()
-                )
-            )
-        }
-        val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
-        return course.periods.distinct().sorted().mapNotNull { periodIndex ->
-            val period = periodByIndex[periodIndex] ?: return@mapNotNull null
-            val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
-            val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
-            if (!end.isAfter(start)) return@mapNotNull null
+        return com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(course, periods).map { segment ->
             LiveUpdateSegment(
-                date.atTime(start).atZone(zone).toInstant().toEpochMilli(),
-                date.atTime(end).atZone(zone).toInstant().toEpochMilli()
+                date.atTime(segment.start).atZone(zone).toInstant().toEpochMilli(),
+                date.atTime(segment.end).atZone(zone).toInstant().toEpochMilli()
             )
         }
     }
@@ -635,16 +699,44 @@ object NotificationScheduler {
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        XiaomiSuperIsland.ensureChannel(context)
     }
 
     fun channelId(): String = CHANNEL_ID
 
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
-    fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity) {
+    internal enum class LiveUpdatePreviewResult {
+        POSTED, NOTIFICATIONS_UNAVAILABLE, VENDOR_HANDLES_PREVIEW, DELIVERY_FAILED,
+        ISLAND_PRIVILEGE_REQUIRED, ISLAND_FOCUS_REQUIRED
+    }
+
+    internal fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity): LiveUpdatePreviewResult {
+        if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
+            cancelLiveUpdateNotifications(context)
+            stopLiveUpdateService(context)
+            return LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW
+        }
         createChannel(context)
-        if (!canPostNotifications(context)) return
-        startLiveUpdateService(context, liveUpdatePreviewPayload(config))
+        if (!canPostNotifications(context)) return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+        if (XiaomiSuperIsland.isSelected(context)) {
+            if (!XiaomiSuperIsland.hasPrivilege(context)) return LiveUpdatePreviewResult.ISLAND_PRIVILEGE_REQUIRED
+            if (XiaomiSuperIsland.focusPermission(context) == false) return LiveUpdatePreviewResult.ISLAND_FOCUS_REQUIRED
+            if (context.getSystemService(NotificationManager::class.java)
+                    ?.getNotificationChannel(XiaomiSuperIsland.ChannelId)?.importance == NotificationManager.IMPORTANCE_NONE) {
+                return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+            }
+        }
+        // Island tests alternate dedicated slots, producing a fresh focus event without
+        // replacing an active course notification.
+        stopLiveUpdateService(context)
+        if (!XiaomiSuperIsland.isEnabled(context)) cancelLiveUpdateNotifications(context)
+        return runCatching { startLiveUpdateService(context, liveUpdatePreviewPayload(config)) }
+            .onFailure { Log.e(TAG, "live update preview delivery failed", it) }
+            .getOrDefault(false)
+            .let { posted ->
+                if (posted) LiveUpdatePreviewResult.POSTED else LiveUpdatePreviewResult.DELIVERY_FAILED
+            }
     }
 
     internal fun liveUpdatePreviewPayload(
@@ -666,9 +758,9 @@ object NotificationScheduler {
             name = "高等数学",
             timeText = timeText,
             location = "教学楼 A101",
-            // A preview must always be dismissible even when the user has
-            // disabled optional actions for real course reminders.
-            showActions = true,
+            // Mirror the real course reminder so the preview proves whether the action buttons are
+            // hidden. The preview keeps its own mute key, so it stays cancellable from the app.
+            showActions = config.liveUpdateActionsEnabled,
             muteKey = "preview:${now.toInstant().toEpochMilli()}",
             muteUntil = startMillis.toString(),
             chipTextMode = config.liveUpdateChipTextMode,
@@ -696,6 +788,8 @@ object NotificationScheduler {
     internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
         val nowMillis = System.currentTimeMillis()
         val status = payload.statusAt(nowMillis)
+        val superIslandSelected = XiaomiSuperIsland.isEnabled(context)
+        val notificationIdentity = payload.notificationIdentityAt(nowMillis)
         val placeText = payload.location.ifBlank { "未设置地点" }
         val shortText = when {
             payload.kind == LiveUpdateKind.TOMORROW -> "明日${payload.tomorrowCourseCount}门"
@@ -729,6 +823,40 @@ object NotificationScheduler {
             openAppIntent ?: Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        if (superIslandSelected) {
+            XiaomiSuperIsland.ensureChannel(context)
+            val expiresAt = when {
+                payload.expiresAtMillis > nowMillis -> payload.expiresAtMillis
+                payload.isPreview() -> payload.startAtMillis()
+                payload.duringClassEnabled -> payload.endAtMillis()
+                else -> payload.startAtMillis()
+            }
+            return Notification.Builder(context, XiaomiSuperIsland.ChannelId)
+                .applyAppNotificationIcon(context)
+                .setContentTitle(titleText)
+                .setContentText(bodyText)
+                .setContentIntent(contentIntent)
+                .setAutoCancel(false)
+                .apply {
+                    expiresAt?.takeIf { it > nowMillis }?.let { setTimeoutAfter(it - nowMillis) }
+                }
+                .build().also { notification ->
+                    notification.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
+                    notification.extras.putBoolean(EXTRA_ISLAND_PREVIEW, payload.isPreview())
+                    val dndTitle = dndActionTitle(context)
+                    notification.extras.putBundle("miui.focus.actions", Bundle().apply {
+                        putParcelable(XiaomiSuperIsland.DndActionKey,
+                            Notification.Action.Builder(
+                                Icon.createWithResource(context, R.drawable.ic_moon_light),
+                                dndTitle,
+                                dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
+                            ).build())
+                    })
+                    XiaomiSuperIsland.decorate(
+                        context, notification, payload, status, shortText.toString(), dndTitle
+                    )
+                }
+        }
         val builder = android.app.Notification.Builder(context, CHANNEL_ID)
         // 「禁止应用关闭勿扰」开启且勿扰已激活时：不提供关闭按钮，正文追加文字提示
         val suppressDndCloseButton = payload.showActions &&
@@ -739,7 +867,7 @@ object NotificationScheduler {
         val displayBodyText = if (suppressDndCloseButton) "$bodyText · 勿扰已开启" else bodyText
         val displayExpandedText = if (suppressDndCloseButton) "$expandedText · 勿扰已开启" else expandedText
         builder
-            .setSmallIcon(com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context))
+            .applyAppNotificationIcon(context)
             .setContentTitle(titleText)
             .setContentText(displayBodyText)
             .setStyle(android.app.Notification.BigTextStyle().bigText(displayExpandedText))
@@ -762,7 +890,7 @@ object NotificationScheduler {
             .setChronometerCountDown(false)
             .setCategory(android.app.Notification.CATEGORY_EVENT)
             .setColor(Notification.COLOR_DEFAULT)
-        status.progressPercent?.let { progress ->
+        status.progressPercent?.takeUnless { superIslandSelected }?.let { progress ->
             val countdownLine = if (status.phase == LiveUpdatePhase.BREAK) {
                 "还有${status.minutesToTransition}分钟上课"
             } else {
@@ -802,16 +930,11 @@ object NotificationScheduler {
                         payload.muteUntil
                     )
                 ).build())
-        } else if (payload.showActions && status.progressPercent == null) {
-            val notificationManager = context.getSystemService(NotificationManager::class.java)
-            val hasDndAccess = notificationManager?.isNotificationPolicyAccessGranted == true
+        } else if (payload.showActions && (superIslandSelected || status.progressPercent == null)) {
+            // [fork] 保留本仓库的「禁止应用关闭勿扰」守卫；标题计算复用上游 dndActionTitle
             val dndEnabled = isDoNotDisturbEnabledByApp(context)
             val dndCloseDisabled = LiveUpdatePreferences.isDndCloseDisabled(context)
-            val dndTitle = when {
-                !hasDndAccess -> "授权勿扰"
-                dndEnabled -> "关闭勿扰"
-                else -> "开启勿扰"
-            }
+            val dndTitle = dndActionTitle(context)
             builder
                 .addAction(android.app.Notification.Action.Builder(
                     Icon.createWithResource(context, R.drawable.ic_close_light),
@@ -828,29 +951,31 @@ object NotificationScheduler {
                     ).build())
             }
         }
-        runCatching {
-            builder.javaClass
-                .getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE)
-                .invoke(builder, true)
-            Log.d(TAG, "setRequestPromotedOngoing called")
-        }.onFailure {
-            Log.w(TAG, "setRequestPromotedOngoing unavailable: ${it.javaClass.simpleName}")
-        }
-        runCatching {
+        if (!superIslandSelected) {
+            runCatching {
+                builder.javaClass
+                    .getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE)
+                    .invoke(builder, true)
+                Log.d(TAG, "setRequestPromotedOngoing called")
+            }.onFailure {
+                Log.w(TAG, "setRequestPromotedOngoing unavailable: ${it.javaClass.simpleName}")
+            }
             builder.extras.putBoolean("android.requestPromotedOngoing", true)
+            // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
+            runCatching {
+                builder.javaClass
+                    .getMethod("setShortCriticalText", CharSequence::class.java)
+                    .invoke(builder, shortText)
+            }.recoverCatching {
+                builder.javaClass
+                    .getMethod("setShortCriticalText", String::class.java)
+                    .invoke(builder, shortText.toString())
+            }
+            builder.extras.putCharSequence("android.shortCriticalText", shortText)
         }
-        // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
-        runCatching {
-            builder.javaClass
-                .getMethod("setShortCriticalText", CharSequence::class.java)
-                .invoke(builder, shortText)
-        }.recoverCatching {
-            builder.javaClass
-                .getMethod("setShortCriticalText", String::class.java)
-                .invoke(builder, shortText.toString())
-        }
-        builder.extras.putCharSequence("android.shortCriticalText", shortText)
+        builder.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
         return builder.build().also { notification ->
+            XiaomiSuperIsland.decorate(context, notification, payload, status, shortText.toString())
             val promotable = runCatching {
                 notification.javaClass
                     .getMethod("hasPromotableCharacteristics")
@@ -899,6 +1024,7 @@ object NotificationScheduler {
             .setAction(action)
             .putExtra("muteKey", muteKey)
             .putExtra("muteUntil", muteUntil)
+            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -919,13 +1045,24 @@ object NotificationScheduler {
         )
     }
 
+    private fun dndActionTitle(context: Context): String {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        return when {
+            manager?.isNotificationPolicyAccessGranted != true -> "授权勿扰"
+            isDoNotDisturbEnabledByApp(context) -> "关闭勿扰"
+            else -> "开启勿扰"
+        }
+    }
+
     private fun CourseEntity.muteKey(date: LocalDate): String =
         "$id:$date:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
 
     private fun isPreviewLiveUpdateRunning(context: Context): Boolean {
+        if (XiaomiSuperIsland.hasActivePreview(context)) return true
         val prefs = context.getSharedPreferences(LiveUpdatePayload.PREFS, Context.MODE_PRIVATE)
         val muteKey = prefs.getString("mute_key", "").orEmpty()
-        return muteKey.startsWith("preview:")
+        return muteKey.startsWith("preview:") &&
+            prefs.getLong("expires_at", 0L) > System.currentTimeMillis()
     }
 
     private fun isMutedForPayload(
@@ -958,7 +1095,7 @@ object NotificationScheduler {
                     .putString(KEY_MUTED_UNTIL, muteUntil)
                 }
         }
-        NotificationManagerCompat.from(context).cancel(LIVE_UPDATE_ID)
+        cancelLiveUpdateNotifications(context)
         stopLiveUpdateService(context)
     }
 
@@ -969,28 +1106,19 @@ object NotificationScheduler {
             val enable = !isDoNotDisturbEnabledByApp(context)
             val changed = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                    setApplicationDndRuleState(context, manager, prefs, enable)
+                    runCatching { setApplicationDndRuleState(context, manager, prefs, enable) }
+                        .recoverCatching { ruleError ->
+                            // Android 15+ scopes this fallback to the app's implicit rule.
+                            Log.w(TAG, "Explicit DND rule failed; using platform compatibility rule", ruleError)
+                            manager.setInterruptionFilter(
+                                if (enable) NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                                else NotificationManager.INTERRUPTION_FILTER_ALL
+                            )
+                        }.getOrThrow()
                 } else {
-                    manager.setInterruptionFilter(
-                        if (enable) {
-                            NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                        } else {
-                            NotificationManager.INTERRUPTION_FILTER_ALL
-                        }
-                    )
+                    setLegacyDndState(context, manager, prefs, enable)
                 }
-            }.recoverCatching { ruleError ->
-                // Keep the platform's implicit-rule compatibility path as a last resort for OEMs
-                // whose Android 15+ rule manager rejects explicit rules.
-                Log.w(TAG, "Explicit DND rule failed; using platform compatibility rule", ruleError)
-                manager.setInterruptionFilter(
-                    if (enable) {
-                        NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                    } else {
-                        NotificationManager.INTERRUPTION_FILTER_ALL
-                    }
-                )
-            }.isSuccess
+            }.onFailure { Log.w(TAG, "Unable to change course DND state", it) }.isSuccess
             if (changed) {
                 prefs.edit { putBoolean(KEY_DND_ENABLED_BY_APP, enable) }
                 // 点击按钮后立即以最新勿扰状态重建通知，不等下一分钟整点：
@@ -1013,6 +1141,63 @@ object NotificationScheduler {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 )
             }.onFailure { Log.w(TAG, "Unable to open DND access settings", it) }
+        }
+    }
+
+    private fun legacyDndSession(prefs: android.content.SharedPreferences): LegacyDndSession? {
+        if (!prefs.contains(KEY_DND_PREVIOUS_FILTER) || !prefs.contains(KEY_DND_APPLIED_FILTER) ||
+            !prefs.contains(KEY_DND_BOOT_COUNT)) return null
+        return LegacyDndSession(
+            previousFilter = prefs.getInt(KEY_DND_PREVIOUS_FILTER, NotificationManager.INTERRUPTION_FILTER_UNKNOWN),
+            appliedFilter = prefs.getInt(KEY_DND_APPLIED_FILTER, NotificationManager.INTERRUPTION_FILTER_UNKNOWN),
+            bootCount = prefs.getInt(KEY_DND_BOOT_COUNT, -1),
+            overridden = prefs.getBoolean(KEY_DND_OVERRIDDEN, false)
+        )
+    }
+
+    private fun setLegacyDndState(
+        context: Context,
+        manager: NotificationManager,
+        prefs: android.content.SharedPreferences,
+        enabled: Boolean
+    ) {
+        val currentFilter = manager.currentInterruptionFilter
+        val bootCount = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        if (enabled) {
+            val session = LegacyDndSession.start(currentFilter, bootCount)
+            // Persist ownership before changing system state so process death cannot lose the snapshot.
+            check(prefs.edit()
+                .putInt(KEY_DND_PREVIOUS_FILTER, session.previousFilter)
+                .putInt(KEY_DND_APPLIED_FILTER, session.appliedFilter)
+                .putInt(KEY_DND_BOOT_COUNT, session.bootCount)
+                .putBoolean(KEY_DND_OVERRIDDEN, false)
+                .putBoolean(KEY_DND_ENABLED_BY_APP, true)
+                .commit()) { "Unable to save the previous DND mode" }
+            if (currentFilter != session.appliedFilter) manager.setInterruptionFilter(session.appliedFilter)
+        } else {
+            val restore = legacyDndSession(prefs)?.filterToRestore(currentFilter, bootCount)
+            if (restore != null && restore != currentFilter) manager.setInterruptionFilter(restore)
+            // Older builds have no snapshot: release ownership without guessing an original mode.
+            prefs.edit(commit = true) {
+                putBoolean(KEY_DND_ENABLED_BY_APP, false)
+                remove(KEY_DND_PREVIOUS_FILTER)
+                remove(KEY_DND_APPLIED_FILTER)
+                remove(KEY_DND_BOOT_COUNT)
+                remove(KEY_DND_OVERRIDDEN)
+            }
+        }
+    }
+
+    internal fun observeLegacyDndState(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_DND_ENABLED_BY_APP, false)) return
+        val session = legacyDndSession(prefs) ?: return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val bootCount = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        if (session.observe(manager.currentInterruptionFilter, bootCount).overridden) {
+            // Once relinquished, returning manually to the same filter does not regain ownership.
+            prefs.edit(commit = true) { putBoolean(KEY_DND_OVERRIDDEN, true) }
         }
     }
 
@@ -1095,21 +1280,7 @@ object NotificationScheduler {
     }
 
     fun refreshLiveUpdateIcon(context: Context) {
-        if (!canPostNotifications(context)) return
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val active = manager.activeNotifications.firstOrNull { it.id == LIVE_UPDATE_ID } ?: return
-        val icon = com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId(context)
-        val submittedIcon = active.notification.smallIcon
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-            submittedIcon?.type == Icon.TYPE_RESOURCE && submittedIcon.resId == icon &&
-            submittedIcon.resPackage == context.packageName
-        ) return
-        val updated = android.app.Notification.Builder.recoverBuilder(context, active.notification)
-            .setSmallIcon(icon)
-            .setOnlyAlertOnce(true)
-            .build()
-        logLiveUpdateIcon(context, updated)
-        manager.notify(active.tag, active.id, updated)
+        refreshAppNotificationIcons(context)
     }
 
     private fun refreshVisibleLiveUpdate(context: Context) {
@@ -1140,16 +1311,34 @@ object NotificationScheduler {
         )
     }
 
-    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload) {
+    internal fun startLiveUpdateService(context: Context, payload: LiveUpdatePayload): Boolean {
+        if (!payload.isPreview() && payload.kind == LiveUpdateKind.COURSE &&
+            ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context) &&
+            payload.statusAt().phase == LiveUpdatePhase.BEFORE_CLASS) return false
         val notification = liveUpdateNotification(context, payload)
         // Submit while the event receiver still holds its wake lock. Delivery must not wait
         // for the FGS (or its optional minute loop) to be scheduled by an OEM background policy.
-        if (!canPostNotifications(context)) return
+        if (!canPostNotifications(context)) return false
+        if (XiaomiSuperIsland.isEnabled(context)) {
+            // A foreground service immediately reposts the focus notification as ongoing and
+            // prevents the Xiaomi float from appearing.
+            stopLiveUpdateService(context)
+            try {
+                if (!postLiveUpdateNotification(context, notification)) return false
+                if (payload.isPreview()) {
+                    XiaomiSuperIsland.markPreview(context, payload.startAtMillis() ?: 0L)
+                }
+            } catch (error: SecurityException) {
+                Log.w(TAG, "super island rejected: notification permission revoked", error)
+                return false
+            }
+            return true
+        }
         try {
             postLiveUpdateNotification(context, notification)
         } catch (error: SecurityException) {
             Log.w(TAG, "live update rejected: notification permission revoked", error)
-            return
+            return false
         }
         val intent = Intent(context, LiveUpdateForegroundService::class.java)
             .setAction(ACTION_START_LIVE_UPDATE_SERVICE)
@@ -1161,12 +1350,66 @@ object NotificationScheduler {
         }.onFailure {
             Log.w(TAG, "minute refresh service unavailable; event notification already posted", it)
         }
+        return true
     }
 
     @SuppressLint("MissingPermission")
-    private fun postLiveUpdateNotification(context: Context, notification: Notification) {
+    internal fun postLiveUpdateNotification(
+        context: Context,
+        notification: Notification,
+        attachForeground: ((Int, Notification) -> Unit)? = null
+    ) = synchronized(liveUpdatePostLock) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized false
+        val active = manager.activeNotifications.filter {
+            it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID ||
+                it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID ||
+                it.id == SUPER_ISLAND_TEST_ID || it.id == SUPER_ISLAND_TEST_ALTERNATE_ID
+        }.sortedByDescending { it.postTime }
+        val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
+        val island = XiaomiSuperIsland.isEnabled(context) &&
+            notification.channelId == XiaomiSuperIsland.ChannelId
+        val preview = island && notification.extras.getBoolean(EXTRA_ISLAND_PREVIEW)
+        val id = if (preview) {
+            liveUpdateNotificationSlot(active.filter {
+                it.id == SUPER_ISLAND_TEST_ID || it.id == SUPER_ISLAND_TEST_ALTERNATE_ID
+            }.map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
+        } else if (island) {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID
+            )
+        } else {
+            liveUpdateNotificationSlot(
+                active.filter { it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID }
+                    .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
+            )
+        }
         logLiveUpdateIcon(context, notification)
-        NotificationManagerCompat.from(context).notify(LIVE_UPDATE_ID, notification)
+        // Post first. Reattach the running foreground service before removing its former slot.
+        val delivered = XiaomiSuperIsland.post(context, notification) {
+            manager.notify(id, notification)
+            attachForeground?.invoke(id, notification)
+        }
+        (if (preview) listOf(SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
+            else listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID))
+            .filter { it != id }.forEach(manager::cancel)
+        delivered
+    }
+
+    internal fun cancelLiveUpdateNotifications(context: Context, includePreview: Boolean = true) = synchronized(liveUpdatePostLock) {
+        val manager = NotificationManagerCompat.from(context)
+        manager.cancel(LIVE_UPDATE_ID)
+        manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
+        manager.cancel(SUPER_ISLAND_ID)
+        manager.cancel(SUPER_ISLAND_ALTERNATE_ID)
+        if (includePreview) {
+            XiaomiSuperIsland.clearPreview(context)
+            manager.cancel(SUPER_ISLAND_TEST_ID)
+            manager.cancel(SUPER_ISLAND_TEST_ALTERNATE_ID)
+        }
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
@@ -1191,7 +1434,9 @@ object NotificationScheduler {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = context.getSystemService(NotificationManager::class.java)
-                ?.getNotificationChannel(CHANNEL_ID)
+                ?.getNotificationChannel(
+                    if (XiaomiSuperIsland.isEnabled(context)) XiaomiSuperIsland.ChannelId else CHANNEL_ID
+                )
             if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
         }
         return true
@@ -1235,6 +1480,11 @@ object NotificationScheduler {
 
     fun requestReschedule(context: Context) {
         requestRefresh(context, forceReschedule = true)
+    }
+
+    fun reopenCurrentIsland(context: Context) {
+        if (XiaomiSuperIsland.isEnabled(context)) cancelLiveUpdateNotifications(context)
+        requestRefresh(context)
     }
 
     fun requestRefresh(context: Context, forceReschedule: Boolean = false, onComplete: () -> Unit = {}) {

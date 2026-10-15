@@ -1,6 +1,6 @@
 # SleepDown Schedule 开发指南
 
-本文件保留长期有效的协作原则、数据边界和交付方式。开始任务时完整阅读本文件，其余文档按任务查阅，入口见 [docs/README.md](docs/README.md)。单次调查、实验结论和验收记录留在对应报告中，不累积成全局禁令。
+本文件保留长期有效的协作原则、数据边界和交付方式。开始任务时完整阅读本文件，其余文档按任务查阅，入口见 [docs/README.md](docs/README.md)。当前分支、Beta 与正式版关系见 [版本基线](docs/RELEASE_MODEL.md)，每轮 Git 步骤见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)。单次调查、实验结论和验收记录留在对应报告中，不累积成全局禁令。
 
 ## 判断与执行
 
@@ -56,13 +56,18 @@
 
 - 默认 PowerShell，源码修改使用 `apply_patch`。只暂存本次文件，保留用户改动和任务外素材；不使用 `git reset --hard` 或 `git checkout --` 丢弃工作树。
 - 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
+- `main` 是唯一持续开发基线；新普通功能从当前 `main` 派生短期分支，PR 目标为 `main`。历史 `develop`、`exp` 和 `-expN` 不再作为开发或发布入口，保留可追溯历史。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
 - GitHub 元数据操作使用 Codex 自带 GitHub plugin，不使用 GitHub CLI。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release。
+- 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。
 - 删除或移动前确认精确目标；破坏性操作必须有授权，不删除任务外文件。
 
 ## 验证与安装
 
 根据修改风险执行最小充分验证，不为局部改动无意义地重复全套任务：
+
+- 默认按下表完成编译或打包；只有数据、时间规则、解析、状态机等存在实际回归风险时才运行相关测试。样式、文案和可逆的局部交互调整不追加机械测试，也不顺带运行无关套件。
+- 删除已退役实现时清理对应旧测试；仍保护当前数据兼容或业务规则的测试应保留。过时测试引用不能成为每次开发反复扩大验证范围的理由。
 
 | 修改类型 | 验证入口 |
 | --- | --- |
@@ -81,6 +86,10 @@ $env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
 
 按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。
 
-用户要求安装时先运行 `adb devices -l`，确认目标后覆盖安装签名 Release：`app/build/outputs/apk/github/release/app-github-release.apk`。默认不自动启动，除非用户要求。
+本机 Android SDK 的 ADB 使用独立 `5038` 端口，默认连接为 `ADB_SERVER_SOCKET=tcp:127.0.0.1:5038`；SDK 路径为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`。OPPO 互联使用的 `5037` 服务端不作为本项目安装入口。当前应用进程可能尚未继承用户环境，项目命令统一显式使用 `adb -P 5038`，避免混用服务端。
+
+复用 `scripts/Invoke-Adb.ps1` 可固定 SDK 来源与 `5038` 通道；本机 PowerShell 7 / Windows PowerShell 5 的 `adb` 命令也转到该入口。入口通过 `server-status` 核对实际服务端程序和当前用户配对密钥目录；5038 被其他来源占用时，仅重启这条通道，确认 SDK 接管后才发送项目命令。只固定客户端路径或端口不能保证服务端来源正确。用户环境同时设置 `ANDROID_ADB_SERVER_PORT=5038`，供 Android Studio / DDMLib 识别同一端口；修改前已运行的程序需重启才会继承用户环境。连接结果以 `connected to` / `already connected to` 及后续设备状态为准，不能只凭原生 ADB 的退出码判断成功；该脚本将打印连接失败却返回 `0` 的情况修正为失败退出码。无线端口可能变化，优先使用已配对设备的 mDNS 服务发现当前端点，不固化旧手机端口。
+
+用户要求安装时先运行 `adb -P 5038 devices -l`，确认目标后使用 `adb -P 5038 -s <设备地址> install -r app/build/outputs/apk/github/release/app-github-release.apk` 覆盖安装签名 Release。默认不自动启动，除非用户要求。
 
 只报告实际执行的验证；实机记录设备、系统、场景和结果。未执行项说明原因。完成回复简洁交代修改及原因、主要文件与影响、构建/测试和安装结果；面向用户的更新日志使用产品语言。

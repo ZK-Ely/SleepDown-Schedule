@@ -1,63 +1,42 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
-import android.provider.Settings
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
 import android.view.ViewGroup
-import androidx.core.view.WindowCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
-import android.webkit.WebChromeClient
+import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -67,83 +46,109 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
-import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
-import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
 import androidx.compose.ui.viewinterop.AndroidView
-import org.json.JSONArray
-import org.json.JSONObject
-import com.kyant.backdrop.catalog.components.LiquidButton
+import androidx.compose.ui.zIndex
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
-import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.Capsule
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.DisposableEffect
-import java.net.URL
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
+import com.xiaomanjun.sleepdownschedule.core.web.enableSleepDownDownloads
+import com.xiaomanjun.sleepdownschedule.core.web.releaseSleepDownWebView
+import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
+import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToInt
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
+/** A caller-owned action using the same browser, dock and page guide as education import. */
+internal data class EduBrowserPrimaryAction(
+    val label: String,
+    val guide: String,
+    val onInvoke: suspend (WebView, ShiguangBridgeHost, Boolean) -> String,
+    val enabled: Boolean = true,
+    val progressMessage: String = "正在读取登录态并验证凭证…",
+    val onPageStarted: (WebView, String?) -> Unit = { _, _ -> },
+    val onPageFinished: (WebView, String?) -> Unit = { _, _ -> }
+)
 
 @Composable
-fun EduImportActivityScreen(
+internal fun EduImportActivityScreen(
     state: AppState,
     adapter: EduAdapter,
     backdrop: Backdrop?,
     webContentBackdrop: LayerBackdrop,
     useDetailTopPadding: Boolean = true,
+    primaryAction: EduBrowserPrimaryAction? = null,
+    prepareWebView: suspend (WebView) -> Unit = {},
+    initialDesktopMode: Boolean = false,
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -155,10 +160,14 @@ fun EduImportActivityScreen(
             if (adapter.requiresManualEduUrl()) "" else adapter.importUrl.ifBlank { "about:blank" }
         )
     }
+    val currentOnParsed by rememberUpdatedState(onParsed)
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
             context = context,
-            onDraft = onParsed,
+            onDraft = { draft ->
+                webView?.commitSystemCredentialAutofill()
+                currentOnParsed(draft)
+            },
             onMessage = { message = it },
             onInteractionRequest = { bridgeInteraction = it }
         )
@@ -181,6 +190,9 @@ fun EduImportActivityScreen(
         onUrlChange = { currentUrl = it },
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
+        primaryAction = primaryAction,
+        prepareWebView = prepareWebView,
+        initialDesktopMode = initialDesktopMode,
         onMessage = { message = it }
     )
 }
@@ -427,29 +439,23 @@ private fun eduImportIslandStatus(rawStatus: String?): String? {
 @Composable
 private fun EduImportGuideMorphOverlay(
     adapter: EduAdapter,
+    config: ScheduleConfigEntity,
     backdrop: Backdrop,
     visible: Boolean,
     expanded: Boolean,
     statusText: String?,
     onExpand: () -> Unit,
-    onCollapse: () -> Unit
+    onCollapse: () -> Unit,
+    guideText: String = "登录后进入课程表页面，点击底部导入并核对预览。",
+    primaryActionLabel: String? = null
 ) {
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     val density = LocalDensity.current
     val view = LocalView.current
-    val window = (view.context as? ComponentActivity)?.window
-    val originalCutoutMode = remember(window) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window?.attributes?.layoutInDisplayCutoutMode
-        } else {
-            null
-        }
-    }
-    val morphProgress = remember(adapter) { Animatable(0f) }
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.TopAssistantSystemBars(hidden = visible)
+    val islandMotion = rememberTopAssistantMotion()
     val openMorphEasing = remember { CubicBezierEasing(0.20f, 0.48f, 0.18f, 1f) }
     val closeMorphEasing = remember { CubicBezierEasing(0.32f, 0f, 0.22f, 1f) }
-    val reboundMorphEasing = remember { CubicBezierEasing(0.30f, 0f, 0.24f, 1f) }
-    val settleMorphEasing = remember { CubicBezierEasing(0.34f, 0f, 0.30f, 1f) }
     var handleDragY by remember(adapter) { mutableFloatStateOf(0f) }
     val visibleAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -459,68 +465,12 @@ private fun EduImportGuideMorphOverlay(
         ),
         label = "edu-import-guide-visible"
     )
-    LaunchedEffect(window, view, visible) {
-        val targetWindow = window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(targetWindow, view)
-        if (visible) {
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-                targetWindow.attributes = attributes
-            }
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
-    DisposableEffect(window, view, originalCutoutMode) {
-        onDispose {
-            val targetWindow = window ?: return@onDispose
-            WindowCompat.getInsetsController(targetWindow, view)
-                .show(WindowInsetsCompat.Type.statusBars())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && originalCutoutMode != null) {
-                val attributes = targetWindow.attributes
-                attributes.layoutInDisplayCutoutMode = originalCutoutMode
-                targetWindow.attributes = attributes
-            }
-        }
-    }
     LaunchedEffect(visible, expanded) {
-        val target = if (visible && expanded) 1f else 0f
-        val start = morphProgress.value
-        val travel = abs(target - start)
-        if (travel <= 0.0005f) {
-            morphProgress.snapTo(target)
-            return@LaunchedEffect
-        }
-        val opening = target > start
-        val fullDurationMillis = if (opening) 620 else 560
-        val duration = (fullDurationMillis * travel.coerceIn(0.38f, 1f)).roundToInt()
-        val reboundAt = (duration * 0.74f).roundToInt()
-        val settleAt = (duration * 0.90f).roundToInt()
-        morphProgress.animateTo(
-            targetValue = target,
-            animationSpec = keyframes {
-                durationMillis = duration
-                start at 0 using if (opening) openMorphEasing else closeMorphEasing
-                (if (opening) 1.016f else -0.014f) at reboundAt using reboundMorphEasing
-                (if (opening) 0.997f else 0.003f) at settleAt using settleMorphEasing
-            }
-        )
+        islandMotion.animateTo(if (visible && expanded) 1f else 0f)
     }
     val activeStatus = statusText?.trim()?.takeIf { it.isNotEmpty() }
-    val collapsedStatus = remember(activeStatus) { activeStatus?.take(7) ?: "导入中" }
+    val collapsedStatus = activeStatus?.take(7)
+        ?: if (primaryActionLabel != null) "登录后读取" else "导入中"
     val collapsedStatusStyle = MaterialTheme.typography.labelMedium.copy(
         fontWeight = FontWeight.SemiBold
     )
@@ -538,7 +488,8 @@ private fun EduImportGuideMorphOverlay(
             onCollapse()
         }
     }
-    val geometryProgress = morphProgress.value.coerceIn(-0.02f, 1.02f)
+    val geometryProgress = islandMotion.drop.value.coerceIn(-0.04f, 1.04f)
+    val widthProgress = islandMotion.spread.value.coerceIn(-0.04f, 1.04f)
     val synchronizedProgress = geometryProgress.coerceIn(0f, 1f)
     val foreground = ComposeColor.White
     val contentMotionBlurPx =
@@ -605,10 +556,10 @@ private fun EduImportGuideMorphOverlay(
         }
         val expandedHeight = (guideHeaderHeight + 126.dp)
             .coerceAtMost((maxHeight - expandedSafeInset * 2f).coerceAtLeast(collapsedHeight))
-        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * geometryProgress
+        val cardWidth = collapsedWidth + (expandedWidth - collapsedWidth) * widthProgress
         val cardHeight = collapsedHeight + (expandedHeight - collapsedHeight) * geometryProgress
         val expandedLeft = (maxWidth - expandedWidth) / 2f
-        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * geometryProgress
+        val cardLeft = collapsedLeft + (expandedLeft - collapsedLeft) * widthProgress
         val cardTop = collapsedTop + (expandedSafeInset - collapsedTop) * geometryProgress
 
         fun roundedCornerRadius(position: Int): Dp? {
@@ -635,71 +586,23 @@ private fun EduImportGuideMorphOverlay(
         val collapsedContentAlpha = 1f - synchronizedProgress
         val handleCollapseThreshold = with(density) { 18.dp.toPx() }
 
-        LiquidButton(
-            onClick = { if (!expanded) onExpand() },
-            backdrop = backdrop,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = cardLeft, y = cardTop)
-                .width(cardWidth)
-                .height(cardHeight)
-                .graphicsLayer {
-                    alpha = visibleAlpha
-                    clip = false
-                },
-            isInteractive = visible,
-            clickTargetEnabled = visible,
-            height = cardHeight,
-            contentPadding = PaddingValues(0.dp),
-            blurRadius = 10.dp,
-            lensHeight = 24.dp + 6.dp * synchronizedProgress,
-            lensAmount = 42.dp + 8.dp * synchronizedProgress,
-            chromaticAberration = true,
-            surfaceColor = ComposeColor.Black.copy(alpha = 0.68f - 0.42f * synchronizedProgress),
-            shadowEnabled = false,
-            highlightEnabled = true,
-            shape = cardShape,
-            clipToBounds = false,
-            pressExpansion = 3.dp
+        // A morphing panel must own its corners instead of inheriting a COUIButton capsule rim.
+        Box(
+            modifier = Modifier.align(Alignment.TopStart)
+                .offset(x = cardLeft, y = cardTop).width(cardWidth).height(cardHeight)
+                .graphicsLayer { alpha = visibleAlpha; clip = false }
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null, enabled = visible && !expanded, onClick = onExpand
+                )
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(cardShape)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.34f + 0.66f * synchronizedProgress }
-                        .background(
-                            Brush.verticalGradient(
-                                0f to ComposeColor.Black.copy(alpha = 0.98f),
-                                0.28f to ComposeColor.Black.copy(alpha = 0.84f),
-                                0.48f to ComposeColor.Black.copy(alpha = 0.54f),
-                                0.72f to ComposeColor.Black.copy(alpha = 0.14f),
-                                1f to ComposeColor.Black.copy(alpha = 0.03f)
-                            )
-                        )
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - synchronizedProgress }
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    ComposeColor.White.copy(alpha = 0.10f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.Black.copy(alpha = 0.88f),
-                                    ComposeColor.White.copy(alpha = 0.10f)
-                                )
-                            )
-                        )
-                )
+            TopAssistantSurface(backdrop, config, cardShape, modifier = Modifier.fillMaxSize(),
+                glow = expanded, nativeMaterial = true) {
+            Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .fixedAssistantContentSize(collapsedWidth, collapsedHeight)
                         .padding(horizontal = 13.dp)
                         .graphicsLayer {
                             alpha = collapsedContentAlpha
@@ -733,18 +636,10 @@ private fun EduImportGuideMorphOverlay(
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fixedAssistantContentSize(expandedWidth, expandedHeight)
                         .graphicsLayer {
                             alpha = expandedContentAlpha
                             translationY = (1f - expandedContentAlpha) * 6.dp.toPx()
-                            scaleX = 0.98f + 0.02f * expandedContentAlpha
-                            scaleY = 0.98f + 0.02f * expandedContentAlpha
-                            compositingStrategy = if (contentMotionBlurPx > 0.01f) {
-                                CompositingStrategy.Offscreen
-                            } else {
-                                CompositingStrategy.Auto
-                            }
-                            renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
                         }
                         .padding(
                             start = 18.dp,
@@ -775,7 +670,7 @@ private fun EduImportGuideMorphOverlay(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = adapter.school.name,
+                                text = primaryActionLabel ?: adapter.school.name,
                                 color = foreground,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
@@ -783,7 +678,8 @@ private fun EduImportGuideMorphOverlay(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "适配作者 · ${adapter.maintainer.ifBlank { "拾光社区" }}",
+                                text = if (primaryActionLabel != null) adapter.school.name
+                                    else "适配作者 · ${adapter.maintainer.ifBlank { "拾光社区" }}",
                                 color = foreground.copy(alpha = 0.66f),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
@@ -792,7 +688,7 @@ private fun EduImportGuideMorphOverlay(
                             )
                         }
                     }
-                    if (adapter.description.isNotBlank()) {
+                    if (primaryActionLabel == null && adapter.description.isNotBlank()) {
                         Text(
                             text = adapter.description,
                             modifier = Modifier.fillMaxWidth(),
@@ -811,7 +707,7 @@ private fun EduImportGuideMorphOverlay(
                     )
                     Text(
                         text = activeStatus
-                            ?: "登录后进入课程表页面，点击底部导入并核对预览。",
+                            ?: guideText,
                         color = foreground.copy(alpha = 0.82f),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 2,
@@ -850,6 +746,7 @@ private fun EduImportGuideMorphOverlay(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -867,17 +764,27 @@ private fun EduImportBrowserScreen(
     onUrlChange: (String) -> Unit,
     bridge: ShiguangBridgeHost,
     useDetailTopPadding: Boolean = true,
+    primaryAction: EduBrowserPrimaryAction? = null,
+    prepareWebView: suspend (WebView) -> Unit = {},
+    initialDesktopMode: Boolean = false,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentPrimaryAction by rememberUpdatedState(primaryAction)
+    val currentPrepareWebView by rememberUpdatedState(prepareWebView)
+    var primaryActionRunning by remember(adapter) { mutableStateOf(false) }
     val buttonBackdrop = webContentBackdrop
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var desktopMode by remember { mutableStateOf(false) }
+    var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
     var aiParsing by remember { mutableStateOf(false) }
+    var originalScriptLoading by remember { mutableStateOf(false) }
+    var originalDocumentVersion by remember { mutableIntStateOf(0) }
+    val originalScriptRunning by bridge.running.collectAsState()
+    var attemptedGenericDocumentKey by remember(adapter) { mutableStateOf<String?>(null) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
     var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
@@ -976,10 +883,11 @@ private fun EduImportBrowserScreen(
         }
 
         fun sendCaptureToAi(capture: EduPageCaptureResult, settings: AiImportSettings, includePageText: Boolean = true) {
+            aiParsing = true
             val pageUrl = target.url?.takeIf { it.isNotBlank() } ?: currentUrl
             val aiPageText = buildString {
-                appendLine("当前教务页面地址：${pageUrl.ifBlank { "未知" }}")
-                appendLine("请根据该网址识别学校或教务系统来源，并在模型具备相关能力时参考该学校公开的作息/排课时间。")
+                appendLine("当前教务页面来源：${redactAiUrl(pageUrl).ifBlank { "未知" }}")
+                appendLine("仅使用当前页面明确列出的课程和时间；不要根据学校名称推算作息。")
                 appendLine()
                 if (includePageText) {
                     append(capture.text)
@@ -1017,6 +925,7 @@ private fun EduImportBrowserScreen(
         }
 
         fun prepareCapturePreview(capture: EduPageCaptureResult, settings: AiImportSettings, screenMode: Boolean) {
+            aiParsing = false
             val supportsVision = AiProviderPresets.supportsImageInput(settings.profile)
             val pageIssue = inspectEduPageCapture(capture.text)
             val isLoginPage = pageIssue?.step?.contains("登录") == true
@@ -1077,7 +986,10 @@ private fun EduImportBrowserScreen(
                 screenModeActionLabel = screenLabel,
                 cancelActionLabel = "返回重抓",
                 finished = false,
-                error = null
+                error = null,
+                confirmationTitle = "",
+                confirmationMessage = "",
+                returnToBrowser = false
             ))
             AiEduImportProgressSession.setActions(
                 onConfirm = { sendCaptureToAi(capture, settings, includePageText = true) },
@@ -1144,17 +1056,12 @@ private fun EduImportBrowserScreen(
             )
         }
 
-        AiEduImportProgressSession.clearActions()
-        setAiProgress(AiEduImportProgress(steps = listOf("准备读取当前页面")))
-        context.openRegisteredActivity(
-            TransitionRouteId.ImportToAiProgress,
-            Intent(context, AiEduImportProgressActivity::class.java)
-        )
-        setAiProgress(aiProgress?.copy(routeLabel = routeLabel))
-        onMessage("正在分层抓取当前页面...")
-        aiParsing = true
-        scope.launch {
+        suspend fun prepareTextFallback(message: String) {
+            aiParsing = true
+            setAiProgress(AiEduImportProgress(routeLabel = routeLabel,
+                steps = aiProgress?.steps.orEmpty() + message))
             val capture = runCatching { captureEduPage(target, allowScreenshotFallback = false) }.getOrElse {
+                if (it is CancellationException) throw it
                 setAiProgress(aiProgress?.copy(
                     steps = aiProgress?.steps.orEmpty() + "页面抓取失败",
                     error = it.message ?: "页面抓取失败",
@@ -1162,7 +1069,7 @@ private fun EduImportBrowserScreen(
                 ))
                 onMessage(it.message ?: "页面抓取失败")
                 aiParsing = false
-                return@launch
+                return
             }
             val captureStep = when (capture.mode) {
                 EduPageCaptureMode.TEXT_ONLY -> "已完成 DOM 深度抓取（${capture.text.length} 字符）"
@@ -1183,29 +1090,149 @@ private fun EduImportBrowserScreen(
             )
             prepareCapturePreview(capture, settings, screenMode = capture.screenshots.isNotEmpty())
         }
+
+        fun prepareAdapterPreview(candidate: AiEduCandidate, available: List<EduAdapter>) {
+            aiParsing = false
+            val selected = candidate.tool.findAdapter(available) ?: return
+            setAiProgress(AiEduImportProgress(
+                routeLabel = routeLabel,
+                steps = aiProgress?.steps.orEmpty() + "已匹配${candidate.tool.label}通用教务工具",
+                attachmentTitle = "教务系统识别",
+                confirmationTitle = "使用${candidate.tool.label}通用导入",
+                confirmationMessage = "当前页面符合现有通用工具的结构。工具会直接读取课程，并进入导入预览；无需将课程全文交给模型。也可以改用文本解析。",
+                awaitingConfirmation = true,
+                confirmActionLabel = "使用通用工具",
+                secondaryConfirmActionLabel = "改用文本解析"
+            ))
+            AiEduImportProgressSession.setActions(
+                onConfirm = {
+                    aiParsing = true
+                    setAiProgress(aiProgress?.copy(awaitingConfirmation = false))
+                    scope.launch {
+                        attemptedGenericDocumentKey = candidate.documentKey
+                        val started = try {
+                            executeAiEduAdapter(context, target, bridge, candidate, selected,
+                                state.config, state.periods, desktopMode)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { false }
+                        if (started) {
+                            setAiProgress(aiProgress?.copy(finished = true, returnToBrowser = true))
+                            aiParsing = false
+                            onMessage("已使用${candidate.tool.label}通用工具；若未成功，可再次点击 AI 导入使用文本解析。")
+                        } else {
+                            prepareTextFallback("页面已变化或通用工具无法执行，建议核对当前页面文本")
+                        }
+                    }
+                },
+                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
+                onCancel = { cancelAiImport() }
+            )
+        }
+
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.setPreviewDraft(null)
+        setAiProgress(AiEduImportProgress(routeLabel = routeLabel, steps = listOf("准备识别当前教务页面")))
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+        )
+        aiParsing = true
+        scope.launch {
+            val fingerprint = if (forceFallback) null else try {
+                captureAiEduFingerprint(target)
+            } catch (cancelled: kotlinx.coroutines.TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { null }
+            val available = withContext(Dispatchers.IO) { ShiguangWarehouse.loadVisibleAdapters(context) }
+            val usable = fingerprint?.copy(candidates = fingerprint.candidates.filter {
+                it.documentKey != attemptedGenericDocumentKey && it.tool.findAdapter(available) != null
+            })
+            if (usable == null || usable.candidates.isEmpty()) {
+                prepareTextFallback("未匹配可用的通用工具，建议解析页面文本")
+                return@launch
+            }
+            usable.localMatch?.let {
+                prepareAdapterPreview(it, available)
+                return@launch
+            }
+            val settings = AiImportSettingsStore.load(context)
+            setAiProgress(aiProgress?.copy(
+                pageText = usable.modelInput(),
+                attachmentTitle = "教务页面特征",
+                confirmationTitle = "识别适合的导入方式",
+                confirmationMessage = "发现可能适用的通用教务工具。可以只发送少量页面结构特征进行判断，不发送课程全文或截图；也可以直接使用文本解析。",
+                awaitingConfirmation = true,
+                confirmActionLabel = "识别教务系统",
+                secondaryConfirmActionLabel = "直接解析文本"
+            ))
+            AiEduImportProgressSession.setActions(
+                onConfirm = {
+                    aiParsing = true
+                    val taskId = AiImportTaskManager.startEduRouting(context, usable, settings,
+                        checkNotNull(aiProgress).copy(routeLabel = "教务系统识别"))
+                    scope.launch routingResult@{
+                        val result = AiEduImportProgressSession.progress.first {
+                            it?.taskId != taskId || it.finished
+                        }?.takeIf { it.taskId == taskId } ?: return@routingResult
+                        aiProgress = result
+                        val candidate = parseAiEduRoutingDecision(result.aiOutput, usable)
+                        if (candidate != null) prepareAdapterPreview(candidate, available)
+                        else prepareTextFallback("通用教务判断不充分，建议解析页面文本")
+                    }
+                },
+                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
+                onCancel = { cancelAiImport() }
+            )
+        }
     }
 
     fun runOriginalImportScript() {
+        if (originalScriptLoading || originalScriptRunning) return
         val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
         }
+        originalScriptLoading = true
+        val documentVersion = originalDocumentVersion
+        onMessage("正在加载教务导入脚本…")
         target.evaluateJavascript(AiEduPageExtractScript) { encoded ->
             runCatching { inspectEduPageCapture(decodeAiEduPageSnapshot(encoded)) }
                 .getOrNull()
                 ?.let { onMessage("${it.message}；仍将尝试执行原有拾光导入脚本。") }
         }
         scope.launch {
-            runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
+            try { runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
                 .onSuccess { script ->
+                    if (documentVersion != originalDocumentVersion || target !== (popupWebView ?: webView)) {
+                        onMessage("页面已变化，请加载完成后重新点击导入")
+                        return@onSuccess
+                    }
                     bridge.bindWebView(target)
-                    bridge.beginTask(state.config, state.periods)
+                    bridge.beginTask(
+                        state.config,
+                        state.periods,
+                        mergeOverlappingTimeSlots = adapter.school.id == "GLOBAL_TOOLS" &&
+                            adapter.adapterId.equals("WakeUp", ignoreCase = true),
+                        allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS"
+                    )
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")
-                    target.evaluateJavascript(script, null)
+                    target.evaluateJavascript(isolatedShiguangScript(script)) { started ->
+                        if (started != "\"started\"") {
+                            bridge.finishExecution()
+                            onMessage("网页与 App 的连接不可用，请刷新页面后重新导入")
+                        }
+                    }
                 }
-                .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
+                .onFailure {
+                    bridge.finishExecution()
+                    onMessage("教务导入失败：${it.message ?: "无法加载或执行该学校的导入脚本"}")
+                }
+            } finally { originalScriptLoading = false }
         }
     }
 
@@ -1231,6 +1258,7 @@ private fun EduImportBrowserScreen(
             addressText = primary.url.orEmpty().ifBlank { currentUrl }
             onUrlChange(addressText)
             updateNavigationState(primary)
+            if (primary.progress == 100) currentPrimaryAction?.onPageFinished?.invoke(primary, primary.url)
             scheduleWebTopEdgeSample()
         }
     }
@@ -1313,7 +1341,15 @@ private fun EduImportBrowserScreen(
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     view?.injectShiguangRuntime(desktopMode)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    if (visiblePage) {
+                        originalDocumentVersion += 1
+                        if (bridge.running.value) {
+                            bridge.finishExecution()
+                            onMessage("页面已跳转，请加载完成后重新导入")
+                        }
+                    }
                     if (visiblePage) updateNavigationState(view)
+                    if (visiblePage && view != null) currentPrimaryAction?.onPageStarted?.invoke(view, url)
                     super.onPageStarted(view, url, favicon)
                 }
 
@@ -1346,11 +1382,21 @@ private fun EduImportBrowserScreen(
                         loginHistory = EduLoginHistoryStore.load(context)
                         CookieManager.getInstance().flush()
                     }
+                    if (visiblePage && view != null) currentPrimaryAction?.onPageFinished?.invoke(view, url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
                     scheduleWebTopEdgeSample()
+                }
+
+                override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                    super.doUpdateVisitedHistory(view, url, isReload)
+                    val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    // Token-based portals can leave their login route without reloading the document.
+                    if (visiblePage && view?.progress == 100) {
+                        currentPrimaryAction?.onPageFinished?.invoke(view, url)
+                    }
                 }
 
                 override fun shouldInterceptRequest(
@@ -1405,6 +1451,8 @@ private fun EduImportBrowserScreen(
                     view: WebView?,
                     detail: RenderProcessGoneDetail?
                 ): Boolean {
+                    originalDocumentVersion += 1
+                    bridge.finishExecution()
                     val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
                         ?: addressText.takeIf { it.isNotBlank() }
                         ?: currentUrl
@@ -1482,7 +1530,17 @@ private fun EduImportBrowserScreen(
             bridge.bindWebView(this)
             updateNavigationState(this)
             val initialUrl = rendererRestoreUrl ?: normalizedUrl
-            if (initialUrl.isNotBlank()) webCompatDelegates.getValue(this).loadInitialUrl(initialUrl)
+            val target = this
+            scope.launch {
+                try {
+                    currentPrepareWebView(target)
+                    // A disposed/replaced renderer must never start another navigation.
+                    if (initialUrl.isNotBlank()) webCompatDelegates[target]?.loadInitialUrl(initialUrl)
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    onMessage(error.message ?: "登录态恢复失败，请重新登录")
+                }
+            }
         }
     }
 
@@ -1502,7 +1560,7 @@ private fun EduImportBrowserScreen(
         }
     }
 
-    val guideStatusText = eduImportIslandStatus(screenCaptureStatus ?: message)
+    val guideStatusText = if (primaryAction != null) message else eduImportIslandStatus(screenCaptureStatus ?: message)
     LaunchedEffect(importGuideVisible, guideStatusText) {
         if (importGuideVisible && !guideStatusText.isNullOrBlank()) {
             importGuideExpanded = true
@@ -1512,6 +1570,8 @@ private fun EduImportBrowserScreen(
     val currentGuideVisible = rememberUpdatedState(importGuideVisible)
     val currentGuideExpanded = rememberUpdatedState(importGuideExpanded)
     val currentGuideStatus = rememberUpdatedState(guideStatusText)
+    val currentGuideText = rememberUpdatedState(primaryAction?.guide ?: "登录后进入课程表页面，点击底部导入并核对预览。")
+    val currentGuideActionLabel = rememberUpdatedState(primaryAction?.label)
     val currentGuideExpandAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = true })
     val currentGuideCollapseAction = rememberUpdatedState<() -> Unit>({ importGuideExpanded = false })
     val floatingImportGuide: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
@@ -1519,12 +1579,15 @@ private fun EduImportBrowserScreen(
             @Composable {
                 EduImportGuideMorphOverlay(
                     adapter = adapter,
+                    config = state.config,
                     backdrop = buttonBackdrop,
                     visible = currentGuideVisible.value,
                     expanded = currentGuideExpanded.value,
                     statusText = currentGuideStatus.value,
                     onExpand = currentGuideExpandAction.value,
-                    onCollapse = currentGuideCollapseAction.value
+                    onCollapse = currentGuideCollapseAction.value,
+                    guideText = currentGuideText.value,
+                    primaryActionLabel = currentGuideActionLabel.value
                 )
             }
         }
@@ -1655,7 +1718,32 @@ private fun EduImportBrowserScreen(
                     updateNavigationState(target)
                 },
                 originalImportAvailable = !adapter.isAiEduImportTool(),
+                primaryActionLabel = if (primaryActionRunning) "正在读取…" else primaryAction?.label,
+                primaryActionEnabled = !primaryActionRunning && primaryAction?.enabled != false,
+                onPrimaryAction = primaryAction?.let { action ->
+                    {
+                        val target = popupWebView ?: webView
+                        if (target != null && !primaryActionRunning && action.enabled) {
+                            primaryActionRunning = true
+                            onMessage(action.progressMessage)
+                            scope.launch {
+                                try {
+                                    onMessage(action.onInvoke(target, bridge, desktopMode))
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    // Raw exception messages may contain session URLs or cookies.
+                                    Log.w("EduSession", "Browser action failed: ${error.javaClass.simpleName}")
+                                    onMessage(eduBrowserActionFailureMessage(error))
+                                } finally {
+                                    primaryActionRunning = false
+                                }
+                            }
+                        }
+                    }
+                },
                 aiImportRunning = aiParsing,
+                originalImportRunning = originalScriptLoading || originalScriptRunning,
                 onOriginalImport = { runOriginalImportScript() },
                 onAiImport = {
                     backgroundPermissionGate.continueWithPermissionTip {
@@ -1691,12 +1779,15 @@ private fun EduImportBrowserScreen(
         if (!importGuideMountedAtRoot) {
             EduImportGuideMorphOverlay(
                 adapter = adapter,
+                config = state.config,
                 backdrop = buttonBackdrop,
                 visible = importGuideVisible,
                 expanded = importGuideExpanded,
                 statusText = guideStatusText,
                 onExpand = { importGuideExpanded = true },
-                onCollapse = { importGuideExpanded = false }
+                onCollapse = { importGuideExpanded = false },
+                guideText = currentGuideText.value,
+                primaryActionLabel = currentGuideActionLabel.value
             )
         }
     }

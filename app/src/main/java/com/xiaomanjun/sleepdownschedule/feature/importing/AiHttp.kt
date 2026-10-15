@@ -1,29 +1,26 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import android.os.SystemClock
 import android.util.Log
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.intOrNull
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 
 private fun request(url: String, apiKey: String, method: String, body: ByteArray, contentType: String): String {
@@ -40,8 +37,8 @@ private fun request(url: String, apiKey: String, method: String, body: ByteArray
         connection.outputStream.use { it.write(body) }
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        if (status !in 200..299) throw AiServiceResponseException("AI 请求失败 ($status)：${text.take(300)}", text)
+        val text = stream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
+        if (status !in 200..299) throw AiServiceResponseException("AI 请求失败 ($status)：${text.take(300)}", text, httpStatus = status)
         text
     } finally {
         connection.disconnect()
@@ -69,6 +66,7 @@ private class AiImportHttpTrace(
 
     init {
         logPhase(AiImportHttpPhase.REQUEST_CREATED)
+        requestContext.interaction?.onTransportPhase?.invoke(AiImportHttpPhase.REQUEST_CREATED)
     }
 
     /** Counts a received SSE data payload without logging each event. */
@@ -79,9 +77,23 @@ private class AiImportHttpTrace(
     }
 
     fun mark(phase: AiImportHttpPhase) {
+        requestContext.interaction?.checkActive()
         currentPhase = phase
         logPhase(phase)
         requestContext.onPhase(phase)
+        requestContext.interaction?.onTransportPhase?.invoke(phase)
+        // Header/first-event callbacks are still recorded, but must not replace a summary arriving
+        // in the same burst. The stream decoder publishes the actual event's activity instead.
+        if (phase == AiImportHttpPhase.HEADERS_RECEIVED || phase == AiImportHttpPhase.FIRST_EVENT) return
+        requestContext.interaction?.publishActivity(when (phase) {
+            AiImportHttpPhase.REQUEST_CREATED -> "正在连接 AI 服务"
+            AiImportHttpPhase.BODY_WRITE_START -> "正在发送导入材料"
+            AiImportHttpPhase.BODY_WRITE_END -> "材料已发送，等待模型响应"
+            AiImportHttpPhase.HEADERS_RECEIVED -> "已连接，等待模型输出"
+            AiImportHttpPhase.FIRST_EVENT -> "正在接收模型响应"
+            AiImportHttpPhase.BODY_READ_START -> "正在读取模型结果"
+            AiImportHttpPhase.STREAM_END -> "模型输出已接收，正在校验"
+        })
     }
 
     fun fail(error: Throwable) {
@@ -93,10 +105,9 @@ private class AiImportHttpTrace(
                 " elapsedMs=${elapsedMs()}" +
                 eventStats() +
                 processImportanceField() +
+                // Provider exceptions may contain echoed prompts, credentials or response bodies.
                 " failure=${error.javaClass.name}" +
-                " message=${error.message.orEmpty().replace('\n', ' ').take(240)}" +
-                " cause=${cause?.javaClass?.name.orEmpty()}" +
-                " causeMessage=${cause?.message.orEmpty().replace('\n', ' ').take(240)}"
+                " cause=${cause?.javaClass?.name.orEmpty()}"
         )
     }
 
@@ -128,7 +139,6 @@ private class AiImportHttpTrace(
             " provider=${providerId.orEmpty()}" +
             " endpoint=${endpointStyle.name}" +
             " host=${endpoint.host}" +
-            " path=${endpoint.path}" +
             " input=${requestContext.inputType}" +
             " bodyBytes=$requestBodyBytes" +
             " images=${requestContext.imageCount}" +
@@ -149,15 +159,15 @@ private fun safeRequest(
     requestContext: AiImportNetworkContext
 ): String {
     val trace = AiImportHttpTrace(url, providerId, endpointStyle, requestContext, body.size)
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = method
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", contentType)
-        setRequestProperty("Accept", "application/json")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = contentType,
+        accept = "application/json",
+        method = method
+    )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(body) }
@@ -165,100 +175,23 @@ private fun safeRequest(
         val status = connection.responseCode
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
-            val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
         }
         trace.mark(AiImportHttpPhase.BODY_READ_START)
-        val text = connection.inputStream.bufferedReader().use { it.readText() }
+        val text = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
         trace.mark(AiImportHttpPhase.STREAM_END)
         text
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
     } finally {
+        ChatGptInferenceSessions.release(connection)
         connection.disconnect()
     }
-}
-
-internal fun HttpURLConnection.setAiAuthHeader(apiKey: String, authType: AiAuthType) {
-    when (authType) {
-        AiAuthType.ApiKeyBearer,
-        AiAuthType.OpenAIProjectKey -> setRequestProperty("Authorization", "Bearer $apiKey")
-        AiAuthType.CustomHeader -> setRequestProperty("api-key", apiKey)
-    }
-}
-
-internal fun redactAiUrl(value: String): String {
-    return runCatching {
-        val url = URL(value)
-        "${url.protocol}://${url.host}${url.path}"
-    }.getOrDefault(value.substringBefore('?'))
-}
-
-private fun formatAiNetworkError(url: String, throwable: Throwable): String {
-    val host = runCatching { URL(url).host }.getOrDefault(url)
-    val message = throwable.message.orEmpty()
-    val hint = when {
-        throwable is IllegalArgumentException ->
-            "AI 请求或响应格式不符合接口协议，请检查模型与接口类型。"
-        message.contains("Unacceptable certificate", ignoreCase = true) ||
-            message.contains("SSLHandshakeException", ignoreCase = true) ||
-            message.contains("Trust anchor", ignoreCase = true) ||
-            message.contains("certificate", ignoreCase = true) ->
-            buildString {
-                append("$host 的 HTTPS 证书链没有被 Android 信任。")
-                if (host.contains("xiaomimimo.com", ignoreCase = true)) {
-                    append("小米 MiMo 普通按量接口应使用 https://api.xiaomimimo.com/v1；Token Plan 应改选“小米 MiMo Token Plan”。")
-                }
-                append("如果正在使用代理/VPN/抓包工具，请关闭 HTTPS 检查，或确认代理证书已被系统信任；不要在 App 内跳过证书校验。")
-            }
-        message.contains("failed to connect", ignoreCase = true) ||
-            message.contains("connect timed out", ignoreCase = true) ||
-            message.contains("Connection refused", ignoreCase = true) ->
-            "手机当前网络无法连接到 $host。请尝试切换蜂窝/其他 Wi-Fi，或给手机配置能访问该 API 的代理/VPN。"
-        message.contains("Unable to resolve host", ignoreCase = true) ->
-            "手机当前网络无法解析 $host。请检查 DNS、网络或代理设置。"
-        message.contains("timeout", ignoreCase = true) ->
-            "连接 $host 超时。请检查网络可达性，或稍后重试。"
-        else -> "无法连接到 $host。请检查手机网络、代理/VPN、接口地址和服务商状态。"
-    }
-    return "$hint 原始错误：$message"
-}
-
-internal fun formatAiRequestError(status: Int, text: String, providerId: String? = null): String {
-    if (providerId == AiProviderPresets.dailyFree.id && isManagedFreeLimitError(status, text)) {
-        return "今日免费 AI 共享额度已用完，请明天再试，或在 AI 设置中配置自己的 AI 服务。"
-    }
-    val compact = sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(240)
-    val hint = if (
-        text.contains("404 page not found", ignoreCase = true) ||
-        text.contains("\"code\":\"service_unavailable_error\"", ignoreCase = true)
-    ) {
-        "接口路径不匹配。若使用第三方兼容站，请确认接口地址包含它要求的版本路径（通常是 /v1），并优先关闭“严格 JSON”。"
-    } else {
-        null
-    }
-    return buildString {
-        append("AI 请求失败 ($status)")
-        hint?.let { append("：").append(it) }
-        if (compact.isNotBlank()) append(" 服务返回：").append(compact)
-    }
-}
-
-private fun isManagedFreeLimitError(status: Int, text: String): Boolean {
-    if (status == 429) return true
-    val normalized = text.lowercase()
-    return listOf(
-        "模型超限",
-        "额度已用完",
-        "额度不足",
-        "quota",
-        "rate_limit",
-        "rate limit",
-        "limit exceeded",
-        "too many requests"
-    ).any(normalized::contains)
 }
 
 internal fun postJson(
@@ -269,10 +202,11 @@ internal fun postJson(
     providerId: String? = null,
     requestContext: AiImportNetworkContext = AiImportNetworkContext("TEXT")
 ): String {
-    return when {
-        url.contains("/chat/completions") ->
+    requestContext.interaction?.checkActive()
+    return when (aiRequestEndpointStyle(url, body)) {
+        AiEndpointStyle.CHAT_COMPLETIONS ->
             postChatCompletionStreaming(url, apiKey, body, authType, providerId, requestContext)
-        url.contains("/responses") ->
+        AiEndpointStyle.RESPONSES ->
             postResponsesStreaming(url, apiKey, body, authType, providerId, requestContext)
         else -> safeRequest(
             url,
@@ -285,6 +219,18 @@ internal fun postJson(
             AiEndpointStyle.KIMI_FILE_EXTRACT,
             requestContext
         )
+    }
+}
+
+/** Custom gateways may intentionally use a root URL; request shape still identifies the wire API. */
+internal fun aiRequestEndpointStyle(url: String, body: String): AiEndpointStyle {
+    val request = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+    return when {
+        request?.containsKey("messages") == true -> AiEndpointStyle.CHAT_COMPLETIONS
+        request?.containsKey("input") == true -> AiEndpointStyle.RESPONSES
+        URL(url).path.contains("/chat/completions") -> AiEndpointStyle.CHAT_COMPLETIONS
+        URL(url).path.contains("/responses") -> AiEndpointStyle.RESPONSES
+        else -> AiEndpointStyle.KIMI_FILE_EXTRACT
     }
 }
 
@@ -310,15 +256,14 @@ private fun postChatCompletionStreaming(
         requestContext,
         bodyBytes.size
     )
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "text/event-stream")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = "application/json; charset=utf-8",
+        accept = "text/event-stream"
+    )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -326,33 +271,39 @@ private fun postChatCompletionStreaming(
         val status = connection.responseCode
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
-            val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             trace.mark(AiImportHttpPhase.BODY_READ_START)
-            connection.inputStream.bufferedReader().use { it.readText() }
-                .also { trace.mark(AiImportHttpPhase.STREAM_END) }
+            connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
+                .also {
+                    publishNonStreamingImportActivity(it, AiEndpointStyle.CHAT_COMPLETIONS, requestContext)
+                    trace.mark(AiImportHttpPhase.STREAM_END)
+                }
         } else {
             val accumulator = ChatCompletionSseAccumulator()
+            val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
-            BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                lines.forEach { line ->
-                    if (!line.startsWith("data:")) return@forEach
-                    val payload = line.removePrefix("data:").trim()
-                    if (payload.isBlank() || payload == "[DONE]") return@forEach
-                    trace.onEvent()
-                    if (firstEvent) {
-                        firstEvent = false
-                        trace.mark(AiImportHttpPhase.FIRST_EVENT)
-                    }
-                    accumulator.consume(payload)
+            connection.forEachSseDataLine(checkActive = { requestContext.interaction?.checkActive() }) { payload ->
+                trace.onEvent()
+                if (firstEvent) {
+                    firstEvent = false
+                    trace.mark(AiImportHttpPhase.FIRST_EVENT)
                 }
+                accumulator.consume(payload)
+                accumulator.activities.forEach { requestContext.interaction?.publishActivity(it) }
+                reasoningPublisher.publish(accumulator.displayReasoning)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput)
             }
-            trace.mark(AiImportHttpPhase.STREAM_END)
-            accumulator.toCompletionJson()
+            finishAiImportStream(accumulator.toCompletionJson(), publishFinal = {
+                reasoningPublisher.publish(accumulator.displayReasoning, force = true)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput, force = true)
+            }, onEnd = { trace.mark(AiImportHttpPhase.STREAM_END) })
         }
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
@@ -369,7 +320,9 @@ private fun postResponsesStreaming(
     providerId: String?,
     requestContext: AiImportNetworkContext
 ): String {
-    val streamedBody = runCatching {
+    val streamedBody = if (authType == AiAuthType.ChatGptOAuth) {
+        chatGptResponsesBody(Json.parseToJsonElement(body).jsonObject).toString()
+    } else runCatching {
         val values = Json.parseToJsonElement(body).jsonObject.toMutableMap()
         values["stream"] = JsonPrimitive(true)
         JsonObject(values).toString()
@@ -382,15 +335,17 @@ private fun postResponsesStreaming(
         requestContext,
         bodyBytes.size
     )
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 30_000
-        readTimeout = 600_000
-        doOutput = true
-        setAiAuthHeader(apiKey, authType)
-        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        setRequestProperty("Accept", "text/event-stream")
-    }
+    val connection = openAiPostConnection(
+        url = url,
+        apiKey = apiKey,
+        authType = authType,
+        contentType = "application/json; charset=utf-8",
+        accept = "text/event-stream",
+        model = if (authType == AiAuthType.ChatGptOAuth) {
+            Json.parseToJsonElement(streamedBody).jsonObject["model"]?.jsonPrimitive?.contentOrNull
+        } else null
+    )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -398,50 +353,144 @@ private fun postResponsesStreaming(
         val status = connection.responseCode
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
-            val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
         }
-        if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-            trace.mark(AiImportHttpPhase.BODY_READ_START)
-            connection.inputStream.bufferedReader().use { it.readText() }
-                .also { trace.mark(AiImportHttpPhase.STREAM_END) }
-        } else {
-            val accumulator = ResponsesSseAccumulator()
+        if (authType == AiAuthType.ChatGptOAuth) {
+            val activityAccumulator = ResponsesSseAccumulator(requireCompleted = true)
+            val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
-            BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                lines.forEach { line ->
-                    if (!line.startsWith("data:")) return@forEach
-                    val payload = line.removePrefix("data:").trim()
-                    if (payload.isBlank() || payload == "[DONE]") return@forEach
-                    trace.onEvent()
-                    if (firstEvent) {
-                        firstEvent = false
-                        trace.mark(AiImportHttpPhase.FIRST_EVENT)
-                    }
-                    accumulator.consume(payload)
-                }
+            val response = connection.readChatGptResponse(
+                checkActive = { requestContext.interaction?.checkActive() }
+            ) { payload ->
+                trace.onEvent()
+                if (firstEvent) { firstEvent = false; trace.mark(AiImportHttpPhase.FIRST_EVENT) }
+                activityAccumulator.consume(payload)
+                activityAccumulator.activities.forEach { requestContext.interaction?.publishActivity(it) }
+                reasoningPublisher.publish(activityAccumulator.displayReasoning)
+                requestContext.interaction?.publishStream(activityAccumulator.reasoning.isNotEmpty(), activityAccumulator.courseOutput)
             }
-            trace.mark(AiImportHttpPhase.STREAM_END)
-            accumulator.toResponseJson()
+            finishAiImportStream(response, publishFinal = {
+                publishNonStreamingImportActivity(response, AiEndpointStyle.RESPONSES, requestContext)
+            }, onEnd = { trace.mark(AiImportHttpPhase.STREAM_END) })
+        } else if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+            trace.mark(AiImportHttpPhase.BODY_READ_START)
+            connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
+                .also {
+                    publishNonStreamingImportActivity(it, AiEndpointStyle.RESPONSES, requestContext)
+                    trace.mark(AiImportHttpPhase.STREAM_END)
+                }
+        } else {
+            val accumulator = ResponsesSseAccumulator(requireCompleted = authType == AiAuthType.ChatGptOAuth)
+            val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
+            var firstEvent = true
+            connection.forEachSseDataLine(checkActive = { requestContext.interaction?.checkActive() }) { payload ->
+                trace.onEvent()
+                if (firstEvent) {
+                    firstEvent = false
+                    trace.mark(AiImportHttpPhase.FIRST_EVENT)
+                }
+                accumulator.consume(payload)
+                accumulator.activities.forEach { requestContext.interaction?.publishActivity(it) }
+                reasoningPublisher.publish(accumulator.displayReasoning)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput)
+            }
+            if (authType == AiAuthType.ChatGptOAuth) ChatGptInferenceSessions.checkActive(connection)
+            finishAiImportStream(accumulator.toResponseJson(), publishFinal = {
+                reasoningPublisher.publish(accumulator.displayReasoning, force = true)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput, force = true)
+            }, onEnd = { trace.mark(AiImportHttpPhase.STREAM_END) })
         }
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
     } finally {
+        ChatGptInferenceSessions.release(connection)
         connection.disconnect()
     }
 }
 
+/** Terminal local processing must be the last semantic event, after every forced receipt callback. */
+internal inline fun <T> finishAiImportStream(result: T, publishFinal: () -> Unit, onEnd: () -> Unit): T {
+    publishFinal()
+    onEnd()
+    return result
+}
+
+private fun publishNonStreamingImportActivity(
+    response: String,
+    style: AiEndpointStyle,
+    context: AiImportNetworkContext
+) {
+    context.interaction?.checkActive()
+    val root = parseSseJsonObject(response) ?: return
+    if (style == AiEndpointStyle.CHAT_COMPLETIONS) {
+        requireUsableChatCompletionStatus(root, response)
+        val message = root.optionalArray("choices").firstOrNull()?.jsonObject?.get("message") as? JsonObject ?: return
+        val reports = completedImportProgressSummaries((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+        orderedImportActivities(reports, chatMessageActivity(message)).forEach { context.interaction?.publishActivity(it) }
+        val summary = chatProviderReasoning(message).ifBlank {
+            importProgressSummary((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+        }
+        AiReasoningStreamPublisher(context.onReasoningUpdate).publish(summary, force = true)
+    } else {
+        requireCompletedResponsesStatus(root, response)
+        val summary = collectResponsesSummaries(root).lastOrNull().orEmpty()
+        val reports = completedImportProgressSummaries(responsesOutputText(root))
+        val progress = reports.lastOrNull().orEmpty()
+        orderedImportActivities(reports, summary.takeIf(String::isNotBlank)?.let {
+            AiImportActivity(it, AiImportActivitySource.PROVIDER_SUMMARY)
+        }).forEach { context.interaction?.publishActivity(it) }
+        AiReasoningStreamPublisher(context.onReasoningUpdate).publish(summary.ifBlank { progress }, force = true)
+    }
+}
+
+/** Publish a bounded reading window at most ten times per second; parsing retains the full result. */
+internal class AiReasoningStreamPublisher(
+    private val onUpdate: ((String) -> Unit)?,
+    private val nanoTime: () -> Long = System::nanoTime
+) {
+    private var lastPublishedAt: Long? = null
+    private var lastText = ""
+
+    fun publish(reasoning: CharSequence, force: Boolean = false) {
+        if (onUpdate == null || reasoning.isEmpty()) return
+        val text = reasoning.takeLast(4_000).toString()
+        if (text == lastText) return
+        val now = nanoTime()
+        if (!force && lastPublishedAt?.let { now - it < 100_000_000L } == true) return
+        lastPublishedAt = now
+        lastText = text
+        onUpdate(text)
+    }
+}
+
 internal class ChatCompletionSseAccumulator {
+    private val responseBudget = AiStreamResponseBudget()
+    val courseOutput: String get() = toolCalls.values.firstNotNullOfOrNull { it.importArguments() } ?: content.toString()
     val content = StringBuilder()
     val reasoning = StringBuilder()
+    val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
+        ?: fullMessage?.let(::chatProviderReasoning)?.takeIf(String::isNotBlank)
+        ?: importProgressSummary(fullMessage?.get("content")?.jsonPrimitive?.contentOrNull ?: content)
+    var activity: AiImportActivity? = null
+        private set
+    val activities: List<AiImportActivity> get() = orderedImportActivities(progressReports, activity)
+    private var progressReports = emptyList<String>()
     var finishReason = ""
     var sawChunk = false
     private var fullMessage: JsonObject? = null
     private val toolCalls = linkedMapOf<Int, ChatToolCallAccumulator>()
+    private var usage: JsonElement? = null
+    private val progressTracker = AiImportProgressTracker()
 
     fun consume(payload: String) {
+        activity = null
+        progressReports = emptyList()
+        responseBudget.record(payload)
         val chunk = try {
             Json.parseToJsonElement(payload).jsonObject
         } catch (error: IllegalArgumentException) {
@@ -450,32 +499,54 @@ internal class ChatCompletionSseAccumulator {
         if (chunk["error"] != null && chunk["error"] != JsonNull) {
             throw AiServiceResponseException("AI 服务在流式响应中返回错误。", payload)
         }
+        chunk["usage"]?.takeUnless { it == JsonNull }?.let { usage = it }
         val choice = chunk.optionalArray("choices").firstOrNull()?.jsonObject ?: return
         sawChunk = true
         val delta = choice["delta"].takeUnless { it == JsonNull }?.jsonObject
         if (delta != null) {
             runCatching { delta["content"]?.jsonPrimitive?.contentOrNull }
-                .getOrNull()?.takeIf { it.isNotEmpty() }?.let(content::append)
-            listOf("reasoning_content", "reasoning").forEach { key ->
-                delta[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { reasoning.append(it) }
+                .getOrNull()?.takeIf { it.isNotEmpty() }?.let {
+                    content.append(it)
+                    activity = AiImportActivity("正在接收模型输出（${content.length} 字符）", AiImportActivitySource.STATUS)
+                    progressReports = progressTracker.newlyCompleted(content)
+                    progressReports.lastOrNull()?.let { report ->
+                        activity = AiImportActivity(report, AiImportActivitySource.MODEL_PROGRESS)
+                    }
+                }
+            chatProviderReasoning(delta).takeIf(String::isNotEmpty)?.let {
+                reasoning.append(it)
+                activity = AiImportActivity(importActivityText(reasoning), AiImportActivitySource.PROVIDER_SUMMARY)
             }
             delta.optionalArray("tool_calls").forEachIndexed { fallbackIndex, rawCall ->
                 val call = rawCall.jsonObject
                 val index = call["index"]?.jsonPrimitive?.intOrNull ?: fallbackIndex
                 toolCalls.getOrPut(index, ::ChatToolCallAccumulator).consume(call)
+                activity = AiImportActivity("正在接收工具调用（${toolCalls.values.sumOf { it.argumentLength }} 字符）", AiImportActivitySource.STATUS)
             }
             delta["function_call"].takeUnless { it == JsonNull }?.jsonObject?.let { function ->
                 toolCalls.getOrPut(0, ::ChatToolCallAccumulator).consumeFunction(function)
+                activity = AiImportActivity("正在接收工具调用", AiImportActivitySource.STATUS)
             }
         } else {
-            choice["message"].takeUnless { it == JsonNull }?.jsonObject?.let { fullMessage = it }
+            choice["message"].takeUnless { it == JsonNull }?.jsonObject?.let {
+                fullMessage = it
+                progressReports = progressTracker.newlyCompleted((it["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                activity = chatMessageActivity(it)
+            }
         }
         choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { finishReason = it }
     }
 
     fun toCompletionJson(): String {
         if (!sawChunk) throw AiServiceResponseException("AI 流式响应里没有收到任何内容。", "")
+        if (finishReason !in setOf("stop", "tool_calls", "function_call", "length")) {
+            throw AiServiceResponseException("AI 流式响应未正常结束，未采用未完成的课程或工具数据，请重试。", "")
+        }
+        if (finishReason == "length" && (toolCalls.isNotEmpty() || fullMessage?.optionalArray("tool_calls")?.isNotEmpty() == true)) {
+            throw AiServiceResponseException("AI 工具调用被截断，未采用未完成的课程或工具数据，请重试。", "")
+        }
         return buildJsonObject {
+        usage?.let { put("usage", it) }
         put("choices", buildJsonArray {
             add(buildJsonObject {
                 put("message", fullMessage ?: buildJsonObject {
@@ -490,11 +561,26 @@ internal class ChatCompletionSseAccumulator {
                         })
                     }
                 })
-                put("finish_reason", JsonPrimitive(finishReason.ifBlank { "stop" }))
+                put("finish_reason", JsonPrimitive(finishReason))
             })
         })
         }.toString()
     }
+}
+
+/** Only explicit provider channels are visible; opaque objects and arbitrary thought fields are not. */
+private fun chatProviderReasoning(message: JsonObject): String =
+    listOf("reasoning_content", "reasoning").firstNotNullOfOrNull { key ->
+        (message[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotEmpty)
+    }.orEmpty()
+
+private fun chatMessageActivity(message: JsonObject): AiImportActivity {
+    chatProviderReasoning(message).takeIf(String::isNotBlank)?.let {
+        return AiImportActivity(importActivityText(it), AiImportActivitySource.PROVIDER_SUMMARY)
+    }
+    latestImportProgressSummary((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+        .takeIf(String::isNotBlank)?.let { return AiImportActivity(it, AiImportActivitySource.MODEL_PROGRESS) }
+    return AiImportActivity("模型结果已接收，正在校验", AiImportActivitySource.STATUS)
 }
 
 /** Optional streaming arrays may be JSON null in provider deltas and usage-only chunks. */
@@ -505,6 +591,8 @@ internal fun JsonObject.optionalArray(field: String): List<JsonElement> = when (
 }
 
 private class ChatToolCallAccumulator {
+    val argumentLength: Int get() = arguments.length
+    fun importArguments(): String? = arguments.toString().takeIf { name.toString() == ScheduleImportToolName }
     private var id = ""
     private var type = "function"
     private val name = StringBuilder()
@@ -517,7 +605,17 @@ private class ChatToolCallAccumulator {
     }
 
     fun consumeFunction(function: JsonObject) {
-        function["name"]?.jsonPrimitive?.contentOrNull?.let(name::append)
+        function["name"]?.jsonPrimitive?.contentOrNull?.let { fragment ->
+            // Compatible APIs may repeat the complete name, while OpenAI sends name fragments.
+            when {
+                fragment == name.toString() -> Unit
+                name.isNotEmpty() && fragment.startsWith(name.toString()) -> {
+                    name.clear()
+                    name.append(fragment)
+                }
+                else -> name.append(fragment)
+            }
+        }
         function["arguments"]?.jsonPrimitive?.contentOrNull?.let(arguments::append)
     }
 
@@ -531,49 +629,131 @@ private class ChatToolCallAccumulator {
     }
 }
 
-internal class ResponsesSseAccumulator {
+internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = false) {
+    private val responseBudget = AiStreamResponseBudget()
+    val courseOutput: String get() = functionCalls.values.firstNotNullOfOrNull { it.importArguments() } ?: outputText.toString()
     private var completedResponse: JsonObject? = null
     private val outputItems = linkedMapOf<String, JsonObject>()
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
+    private val itemKeysByIndex = mutableMapOf<Int, String>()
     private val outputText = StringBuilder()
-    private val reasoning = StringBuilder()
+    val reasoning = StringBuilder()
+    private val reasoningText = StringBuilder()
+    val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
+        ?: completedResponse?.let { collectResponsesReasoning(it).joinToString("\n\n") }
+            ?.takeIf(String::isNotBlank)
+        ?: importProgressSummary(completedResponse?.let(::responsesOutputText) ?: outputText)
+    var activity: AiImportActivity? = null
+        private set
+    val activities: List<AiImportActivity> get() = orderedImportActivities(progressReports, activity)
+    private var progressReports = emptyList<String>()
     private var sawEvent = false
+    private var completed = false
+    private val progressTracker = AiImportProgressTracker()
+
+    private fun itemKey(event: JsonObject, item: JsonObject? = null): String {
+        val index = event["output_index"]?.jsonPrimitive?.intOrNull
+        val id = item?.get("id")?.jsonPrimitive?.contentOrNull
+            ?: event["item_id"]?.jsonPrimitive?.contentOrNull
+        if (id != null && index != null) {
+            val old = itemKeysByIndex.put(index, id) ?: index.toString()
+            if (old != id) functionCalls.remove(old)?.let { functionCalls[id] = it }
+        }
+        return id ?: index?.let { itemKeysByIndex[it] ?: it.toString() } ?: "0"
+    }
+    private var sawCompleted = false
 
     fun consume(payload: String) {
+        activity = null
+        progressReports = emptyList()
+        responseBudget.record(payload)
         val event = runCatching { Json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return
         sawEvent = true
         when (event["type"]?.jsonPrimitive?.contentOrNull.orEmpty()) {
-            "response.completed", "response.incomplete" -> completedResponse = event["response"]?.jsonObject
+            "response.created", "response.in_progress", "response.queued" -> {
+                activity = AiImportActivity("模型正在处理请求", AiImportActivitySource.STATUS)
+            }
+            "response.incomplete" -> {
+                if (requireCompleted) {
+                    ChatGptUsageStatus.failed()
+                    throw AiServiceResponseException("ChatGPT 回复未完成，请重试。", "")
+                }
+                throw AiServiceResponseException("AI 回复未完成，未采用未完成的课程或工具数据，请重试。", payload)
+            }
+            "response.completed" -> {
+                completed = true
+                completedResponse = event["response"]?.jsonObject
+                sawCompleted = completedResponse?.get("status")?.jsonPrimitive?.contentOrNull == "completed"
+                completedResponse?.let { requireCompletedResponsesStatus(it, if (requireCompleted) "" else payload) }
+                val summary = completedResponse?.let { collectResponsesSummaries(it).lastOrNull() }.orEmpty()
+                progressReports = progressTracker.newlyCompleted(completedResponse?.let(::responsesOutputText).orEmpty())
+                val progress = progressReports.lastOrNull().orEmpty()
+                activity = when {
+                    summary.isNotBlank() -> AiImportActivity(importActivityText(summary), AiImportActivitySource.PROVIDER_SUMMARY)
+                    progress.isNotBlank() -> AiImportActivity(progress, AiImportActivitySource.MODEL_PROGRESS)
+                    else -> AiImportActivity("模型结果已接收，正在校验", AiImportActivitySource.STATUS)
+                }
+            }
             "response.output_item.added", "response.output_item.done" -> {
                 val item = event["item"]?.jsonObject ?: return
-                val key = item["id"]?.jsonPrimitive?.contentOrNull
-                    ?: event["output_index"]?.jsonPrimitive?.intOrNull?.toString()
-                    ?: outputItems.size.toString()
+                val key = itemKey(event, item)
                 outputItems[key] = item
                 if (item["type"]?.jsonPrimitive?.contentOrNull == "function_call") {
                     functionCalls.getOrPut(key, ::ResponsesFunctionCallAccumulator).seed(item)
+                    activity = AiImportActivity("正在接收工具调用", AiImportActivitySource.STATUS)
+                }
+                if (item["type"]?.jsonPrimitive?.contentOrNull == "reasoning") {
+                    val summary = collectResponsesSummaries(buildJsonObject { put("output", JsonArray(listOf(item))) }).lastOrNull()
+                    activity = summary?.let { AiImportActivity(importActivityText(it), AiImportActivitySource.PROVIDER_SUMMARY) }
+                        ?: AiImportActivity("模型正在处理请求", AiImportActivitySource.STATUS)
+                }
+                if (item["type"]?.jsonPrimitive?.contentOrNull == "message") {
+                    progressReports = progressTracker.newlyCompleted(responsesOutputText(buildJsonObject {
+                        put("output", JsonArray(listOf(item)))
+                    }))
+                    progressReports.lastOrNull()?.let { report ->
+                        activity = AiImportActivity(report, AiImportActivitySource.MODEL_PROGRESS)
+                    }
                 }
             }
             "response.function_call_arguments.delta" -> {
-                val key = event["item_id"]?.jsonPrimitive?.contentOrNull
-                    ?: event["output_index"]?.jsonPrimitive?.intOrNull?.toString()
-                    ?: "0"
+                val key = itemKey(event)
                 functionCalls.getOrPut(key, ::ResponsesFunctionCallAccumulator)
                     .append(event["delta"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                activity = AiImportActivity("正在接收工具调用（${functionCalls.values.sumOf { it.argumentLength }} 字符）", AiImportActivitySource.STATUS)
             }
             "response.function_call_arguments.done" -> {
-                val key = event["item_id"]?.jsonPrimitive?.contentOrNull
-                    ?: event["output_index"]?.jsonPrimitive?.intOrNull?.toString()
-                    ?: "0"
+                val key = itemKey(event)
                 functionCalls.getOrPut(key, ::ResponsesFunctionCallAccumulator)
                     .finish(event["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty())
             }
-            "response.output_text.delta" ->
+            "response.output_text.delta" -> {
                 event["delta"]?.jsonPrimitive?.contentOrNull?.let(outputText::append)
-            "response.reasoning_summary_text.delta", "response.reasoning_text.delta" ->
+                activity = AiImportActivity("正在接收模型输出（${outputText.length} 字符）", AiImportActivitySource.STATUS)
+                progressReports = progressTracker.newlyCompleted(outputText)
+                progressReports.lastOrNull()?.let { report ->
+                    activity = AiImportActivity(report, AiImportActivitySource.MODEL_PROGRESS)
+                }
+            }
+            "response.reasoning_summary_part.added" ->
+                if (reasoning.isNotEmpty()) reasoning.append("\n\n")
+            "response.reasoning_summary_text.delta" -> {
                 event["delta"]?.jsonPrimitive?.contentOrNull?.let(reasoning::append)
+                activity = AiImportActivity(importActivityText(reasoning), AiImportActivitySource.PROVIDER_SUMMARY)
+            }
+            "response.reasoning_summary_text.done" -> {
+                val summary = event["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (summary.isNotBlank()) activity = AiImportActivity(importActivityText(summary), AiImportActivitySource.PROVIDER_SUMMARY)
+            }
+            "response.reasoning_text.delta" -> {
+                // Preserve provider output for protocol continuity, without treating raw reasoning as a public summary.
+                event["delta"]?.jsonPrimitive?.contentOrNull?.let(reasoningText::append)
+                activity = AiImportActivity("模型正在处理请求", AiImportActivitySource.STATUS)
+            }
             "response.failed", "error" -> {
-                val detail = event["error"]?.jsonObject?.get("message")
+                if (requireCompleted) throw AiServiceResponseException(chatGptInferenceError(0, payload), "")
+                val detail = (event["error"] as? JsonObject
+                    ?: (event["response"] as? JsonObject)?.get("error") as? JsonObject)?.get("message")
                     ?.jsonPrimitive?.contentOrNull.orEmpty()
                 throw AiServiceResponseException(detail.ifBlank { "AI Responses 流式请求失败。" }, payload)
             }
@@ -581,23 +761,35 @@ internal class ResponsesSseAccumulator {
     }
 
     fun toResponseJson(): String {
+        if (requireCompleted && !sawCompleted) {
+            ChatGptUsageStatus.failed()
+            throw AiServiceResponseException("ChatGPT 连接已中断，未收到完成事件；本次结果不会执行或保存。", "")
+        }
+        if (requireCompleted) ChatGptUsageStatus.completed()
+        if (!completed) throw AiServiceResponseException("AI Responses 流式响应未收到完成事件，未采用未完成的课程或工具数据，请重试。", "")
         completedResponse?.let { return it.toString() }
         if (!sawEvent) throw AiServiceResponseException("AI Responses 流式响应里没有收到任何事件。", "")
         val functionKeys = functionCalls.keys
         val items = outputItems.filterKeys { it !in functionKeys }.values.toMutableList()
         items += functionCalls.values.map(ResponsesFunctionCallAccumulator::toJson)
-        if (reasoning.isNotEmpty()) {
+        if ((reasoning.isNotEmpty() || reasoningText.isNotEmpty()) && items.none { it["type"]?.jsonPrimitive?.contentOrNull == "reasoning" }) {
             items += buildJsonObject {
                 put("type", JsonPrimitive("reasoning"))
                 put("summary", buildJsonArray {
-                    add(buildJsonObject {
+                    if (reasoning.isNotEmpty()) add(buildJsonObject {
                         put("type", JsonPrimitive("summary_text"))
                         put("text", JsonPrimitive(reasoning.toString()))
                     })
                 })
+                if (reasoningText.isNotEmpty()) put("content", buildJsonArray {
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive("reasoning_text"))
+                        put("text", JsonPrimitive(reasoningText.toString()))
+                    })
+                })
             }
         }
-        if (outputText.isNotEmpty()) {
+        if (outputText.isNotEmpty() && items.none { it["type"]?.jsonPrimitive?.contentOrNull == "message" }) {
             items += buildJsonObject {
                 put("type", JsonPrimitive("message"))
                 put("role", JsonPrimitive("assistant"))
@@ -618,15 +810,17 @@ internal class ResponsesSseAccumulator {
 }
 
 private class ResponsesFunctionCallAccumulator {
+    val argumentLength: Int get() = arguments.length
+    fun importArguments(): String? = arguments.toString().takeIf { name == ScheduleImportToolName }
     private var id = ""
     private var callId = ""
     private var name = ""
     private val arguments = StringBuilder()
 
     fun seed(item: JsonObject) {
-        id = item["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        callId = item["call_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        name = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        item["id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { id = it }
+        item["call_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { callId = it }
+        item["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { name = it }
         item["arguments"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotEmpty)?.let {
             arguments.clear()
             arguments.append(it)
@@ -654,8 +848,9 @@ private class ResponsesFunctionCallAccumulator {
 }
 
 internal fun parseChatCompletionTextResult(response: String, requireContent: Boolean = true): AiProviderTextResult {
-    val choice = Json.parseToJsonElement(response)
-        .jsonObject["choices"]?.jsonArray?.firstOrNull()
+    val root = Json.parseToJsonElement(response).jsonObject
+    requireUsableChatCompletionStatus(root, response)
+    val choice = root["choices"]?.jsonArray?.firstOrNull()
         ?.jsonObject
         ?: throw AiServiceResponseException("AI 响应里没有找到 choices[0]。", response)
     val message = choice["message"]?.jsonObject
@@ -668,7 +863,8 @@ internal fun parseChatCompletionTextResult(response: String, requireContent: Boo
         }
         addAll(collectInlineReasoningBlocks(content))
     }.map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString("\n\n")
-    val finalContent = content.stripInlineReasoningBlocks().trim()
+        .ifBlank { importProgressSummary(content) }
+    val finalContent = content.stripInlineReasoningBlocks().stripImportProgress()
     if (requireContent && finalContent.isBlank()) {
         val detail = if (finishReason == "length") {
             "思考过程耗尽了输出额度，最终正文被截断。"
@@ -680,8 +876,20 @@ internal fun parseChatCompletionTextResult(response: String, requireContent: Boo
     return AiProviderTextResult(content = finalContent, reasoning = reasoning, finishReason = finishReason)
 }
 
-internal fun parseResponsesTextResult(response: String): AiProviderTextResult {
+internal fun requireUsableChatCompletionStatus(root: JsonObject, response: String) {
+    val choice = root.optionalArray("choices").firstOrNull() as? JsonObject ?: return
+    val finish = (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+    val message = choice["message"] as? JsonObject
+    val hasTools = message?.optionalArray("tool_calls")?.isNotEmpty() == true || message?.get("function_call") is JsonObject
+    if ((finish.isNotBlank() && finish !in setOf("stop", "tool_calls", "function_call", "length")) ||
+        (finish == "length" && hasTools)) {
+        throw AiServiceResponseException("AI 回复未完整生成，未采用未完成的课程或工具数据，请重试。", response)
+    }
+}
+
+internal fun parseResponsesTextResult(response: String, requireContent: Boolean = true): AiProviderTextResult {
     val root = Json.parseToJsonElement(response).jsonObject
+    requireCompletedResponsesStatus(root, response)
     val rootText = root["output_text"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val contentParts = mutableListOf<String>()
     val reasoningParts = collectResponsesReasoning(root).toMutableList()
@@ -696,15 +904,24 @@ internal fun parseResponsesTextResult(response: String): AiProviderTextResult {
                 ?.let(contentParts::add)
         }
     }
-    val finalContent = rootText.ifBlank { contentParts.joinToString("\n") }.trim()
-    if (finalContent.isBlank()) {
+    val responseText = rootText.ifBlank { contentParts.joinToString("\n") }.trim()
+    val finalContent = responseText.stripImportProgress()
+    if (requireContent && finalContent.isBlank()) {
         throw AiServiceResponseException("AI 没有返回课程表内容。", response)
     }
     return AiProviderTextResult(
         content = finalContent,
-        reasoning = reasoningParts.distinct().joinToString("\n\n"),
+        reasoning = reasoningParts.distinct().joinToString("\n\n")
+            .ifBlank { importProgressSummary(responseText) },
         finishReason = root["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
     )
+}
+
+internal fun requireCompletedResponsesStatus(root: JsonObject, response: String) {
+    val status = (root["status"] as? JsonPrimitive)?.contentOrNull
+    if (!status.isNullOrBlank() && status != "completed") {
+        throw AiServiceResponseException("AI 回复未完成，未采用未完成的课程或工具数据，请重试。", response)
+    }
 }
 
 internal fun collectResponsesReasoning(root: JsonObject): List<String> = buildList {
@@ -723,6 +940,13 @@ internal fun collectResponsesReasoning(root: JsonObject): List<String> = buildLi
         }
     }
 }.map(String::trim).filter(String::isNotBlank).distinct()
+
+private fun collectResponsesSummaries(root: JsonObject): List<String> = root.optionalArray("output")
+    .mapNotNull { it as? JsonObject }
+    .filter { it["type"]?.jsonPrimitive?.contentOrNull == "reasoning" }
+    .flatMap { it.optionalArray("summary") }
+    .mapNotNull { (it as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull }
+    .filter(String::isNotBlank)
 
 internal fun redactReasoningFields(output: String): String {
     return runCatching {

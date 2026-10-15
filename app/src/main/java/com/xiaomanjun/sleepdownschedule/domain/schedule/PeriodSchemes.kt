@@ -69,7 +69,10 @@ private fun defaultDayPartStartMinute(part: PeriodDayPart): Int = when (part) {
 }
 
 sealed interface PeriodTopologyOperation {
-    data class AddAfter(val periodIndex: Int) : PeriodTopologyOperation
+    data class AddAfter(
+        val periodIndex: Int,
+        val restoredDeletionOperationIndex: Int? = null
+    ) : PeriodTopologyOperation
     data class Delete(val periodIndex: Int) : PeriodTopologyOperation
 }
 
@@ -85,7 +88,17 @@ data class PeriodSchemeDraft(
 data class SchedulePeriodSchemesDraft(
     val schemes: List<PeriodSchemeDraft>,
     val activeSchemeId: Long,
-    val topologyOperations: List<PeriodTopologyOperation> = emptyList()
+    val topologyOperations: List<PeriodTopologyOperation> = emptyList(),
+    // Optimistic snapshot of the public records that this editor actually opened.
+    val originalSchemes: List<PeriodSchemeDraft> = emptyList(),
+    val expectedUsages: List<PeriodSchemeUsageSnapshot>? = null,
+    val originalActiveSchemeId: Long? = null
+)
+
+data class PeriodSchemeUsageSnapshot(
+    val config: ScheduleConfigEntity,
+    val courses: List<CourseEntity>,
+    val periods: List<PeriodEntity>
 )
 
 private val PeriodTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
@@ -118,22 +131,24 @@ internal fun constrainPeriodTimeSelection(
     startMinute: Int,
     endMinute: Int,
     bounds: PeriodTimePickerBounds,
-    anchor: PeriodTimeSelectionAnchor = PeriodTimeSelectionAnchor.NONE
+    anchor: PeriodTimeSelectionAnchor = PeriodTimeSelectionAnchor.NONE,
+    minimumDurationMinutes: Int = 1
 ): PeriodTimeSelection {
     val minimumStart = bounds.minimumStartMinute.coerceIn(0, LastMinuteOfDay - 1)
     val maximumEnd = bounds.maximumEndMinute.coerceIn(minimumStart + 1, LastMinuteOfDay)
+    val duration = minimumDurationMinutes.coerceIn(1, maximumEnd - minimumStart)
     return when (anchor) {
         PeriodTimeSelectionAnchor.START -> {
-            val safeEnd = endMinute.coerceIn(minimumStart + 1, maximumEnd)
-            PeriodTimeSelection(startMinute.coerceIn(minimumStart, safeEnd - 1), safeEnd)
+            val safeEnd = endMinute.coerceIn(minimumStart + duration, maximumEnd)
+            PeriodTimeSelection(startMinute.coerceIn(minimumStart, safeEnd - duration), safeEnd)
         }
         PeriodTimeSelectionAnchor.END -> {
-            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
-            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - duration)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + duration, maximumEnd))
         }
         PeriodTimeSelectionAnchor.NONE -> {
-            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - 1)
-            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + 1, maximumEnd))
+            val safeStart = startMinute.coerceIn(minimumStart, maximumEnd - duration)
+            PeriodTimeSelection(safeStart, endMinute.coerceIn(safeStart + duration, maximumEnd))
         }
     }
 }
@@ -482,6 +497,9 @@ fun decodeOverrides(value: String): Set<Int> = Regex("\\d+").findAll(value).map 
 
 fun validateResolvedPeriodTimes(times: List<PeriodSchemeTimeEntity>): String? {
     val sorted = times.sortedBy { it.periodIndex }
+    sorted.forEachIndexed { position, item ->
+        if (item.periodIndex != position + 1) return "节次编号必须从 1 连续排列"
+    }
     sorted.forEach { item ->
         val start = runCatching { LocalTime.parse(item.startTime) }.getOrNull()
             ?: return "第 ${item.periodIndex} 节开始时间无效"

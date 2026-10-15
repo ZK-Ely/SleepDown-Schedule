@@ -2,12 +2,12 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePayload
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,9 +32,17 @@ class LiveUpdateForegroundService : Service() {
                 clearStoredPayload()
                 refreshJob?.cancel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                NotificationScheduler.cancelLiveUpdateNotifications(this)
                 stopSelf()
             }
             else -> {
+                if (XiaomiSuperIsland.isEnabled(this)) {
+                    // Focus notifications are posted directly. A queued service start must not
+                    // replace the island with a foreground, ongoing notification.
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 NotificationScheduler.createChannel(this)
                 val payload = intent?.toLiveUpdatePayload() ?: restorePayload()
                 val renderedAtMillis = System.currentTimeMillis()
@@ -43,8 +51,7 @@ class LiveUpdateForegroundService : Service() {
                 if (notification != null && payload != null) {
                     activePayload = payload
                     storePayload(payload)
-                    NotificationScheduler.logLiveUpdateIcon(this, notification)
-                    startForeground(NotificationScheduler.liveUpdateId(), notification)
+                    NotificationScheduler.postLiveUpdateNotification(this, notification) { id, value -> startForeground(id, value) }
                     startRefreshLoop(renderedAtMillis)
                     Log.d("SleepDownLiveUpdate", "foreground service started")
                 } else {
@@ -70,12 +77,16 @@ class LiveUpdateForegroundService : Service() {
             var firstFrame = true
             var renderedAtMillis = initialRenderedAtMillis
             while (isActive) {
+                if (XiaomiSuperIsland.isEnabled(this@LiveUpdateForegroundService)) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    break
+                }
                 val payload = activePayload ?: break
                 if (payload.shouldStop()) {
                     clearStoredPayload()
-                    NotificationManagerCompat.from(this@LiveUpdateForegroundService)
-                        .cancel(NotificationScheduler.liveUpdateId())
                     stopForeground(STOP_FOREGROUND_REMOVE)
+                    NotificationScheduler.cancelLiveUpdateNotifications(this@LiveUpdateForegroundService)
                     stopSelf()
                     NotificationScheduler.requestRefresh(this@LiveUpdateForegroundService)
                     break
@@ -91,11 +102,9 @@ class LiveUpdateForegroundService : Service() {
                     if (!firstFrame) {
                         renderedAtMillis = System.currentTimeMillis()
                         val notification = payload.buildNotification(this@LiveUpdateForegroundService)
-                        NotificationScheduler.logLiveUpdateIcon(this@LiveUpdateForegroundService, notification)
-                        NotificationManagerCompat.from(this@LiveUpdateForegroundService).notify(
-                            NotificationScheduler.liveUpdateId(),
-                            notification
-                        )
+                        NotificationScheduler.postLiveUpdateNotification(this@LiveUpdateForegroundService, notification) { id, value ->
+                            startForeground(id, value)
+                        }
                     }
                 } catch (securityException: SecurityException) {
                     Log.w("SleepDownLiveUpdate", "stop live update: notification permission revoked", securityException)

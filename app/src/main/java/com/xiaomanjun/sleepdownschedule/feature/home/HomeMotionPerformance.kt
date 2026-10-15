@@ -1,11 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.BackgroundZoomOpenScale
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
-
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt

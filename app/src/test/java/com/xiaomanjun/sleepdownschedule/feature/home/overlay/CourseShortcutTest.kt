@@ -117,4 +117,42 @@ class CourseShortcutTest {
         assertNull(controller.copyRequest)
         assertEquals(0f, controller.progress.value, 0f)
     }
+
+    @Test fun nativeExitAndBackgroundExitBothFinishBeforeAction() = runBlocking {
+        val clock = BroadcastFrameClock()
+        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
+        var nativeExit: (() -> Unit)? = null
+        var actionCalled = false
+        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
+        repeat(90) { clock.sendFrame(it * 16_666_667L); yield() }
+        controller.dismissNativeMenu = { nativeExit = it }
+        controller.close { actionCalled = true }
+        repeat(30) { clock.sendFrame((90 + it) * 16_666_667L); yield() }
+        assertEquals(0f, controller.progress.value, 0f)
+        assertNotNull(controller.request)
+        assertFalse(actionCalled)
+        checkNotNull(nativeExit).invoke()
+        yield()
+        assertTrue(actionCalled)
+        assertNull(controller.request)
+        assertFalse(controller.closing)
+    }
+
+    @Test fun resetDuringNativeExitDropsPendingAction() = runBlocking {
+        val clock = BroadcastFrameClock()
+        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
+        var nativeExit: (() -> Unit)? = null
+        var actionCalled = false
+        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
+        repeat(30) { clock.sendFrame(it * 16_666_667L); yield() }
+        controller.dismissNativeMenu = { nativeExit = it }
+        controller.close { actionCalled = true }
+        controller.reset()
+        checkNotNull(nativeExit).invoke()
+        repeat(30) { clock.sendFrame((30 + it) * 16_666_667L); yield() }
+        assertNull(controller.request)
+        assertFalse(actionCalled)
+        assertFalse(controller.closing)
+        assertEquals(0f, controller.progress.value, 0f)
+    }
 }

@@ -1,8 +1,14 @@
 # 液态玻璃 2.0 统一框架与同 Activity 动画
 
-更新时间：2026-09-14
+更新时间：2026-10-09
 
 ## 当前结论
+
+- 2026-10-09：用户撤回多卡片切页临时降档，运行时材质跟随所选档位；超过 10 张卡片仍使用普通整页滑入并保留运动期圆角。共用采样与 Nexio 折射路径的后续修改、实机复测中仍存在的尖峰见 [WebDAV、小组件与材质细化](../reports/2026-10-09-webdav-widget-material.md)。下条 10 月 8 日临时降档仅记录当时方案，已被本次要求替代。
+
+- 2026-10-08：三档材质复用设备级 `AppMaterialPreferences`。超级性能通过统一有效策略停止密集控件的玻璃、高斯、折射及光效，模糊参数映射为纯色不透明度；保留性能档渐变模糊及全屏弹层背景模糊。专用课程采样源、共享预模糊与周页面采样刷新同时受策略控制；没有消费者的 producer 清空旧图层记录。超过 10 张显示卡片的切页过程，将质感档临时映射为现有性能档，稳定后恢复，保存值不变。范围及计数验证见 [#67 验收记录](../reports/ISSUE_67_2026-10-08.md)。下方历史结论中的“保留全部材质”指原质感路径，不限制新档位。
+
+- 9 月 14 日后续排查扩展到课程编辑器、菜单目的页与跨 Activity Liquid 路线：动画进度延后读取、录制内容的玻璃坐标冻结，以及冻结首页消费端已有采样层的复用。动态轮廓缓存同步修正为跟随几何状态失效；已关闭的个性化材质通道不再计算无用包络。范围、限制与定向验证见 [动画与导入排查](2026-09-14-animation-import-audit.md)。
 
 - Backdrop 已在独立提交 `eab3059` 从 `2.0.0-alpha03` 升级到正式版 `2.0.0`，`shapes` 保持 `1.2.0`。Kotlin、Compose 和 Serialization 插件无需联动升级。
 - 源码渲染后端仍可按单个不合格场景回退到 `KyantReference`。现有 blur、lens、色散、tint、highlight、shadow、inner shadow、Shape、内容绘制顺序和交互参数未删减；大面积玻璃优化已进入正式配置并保持常开。
@@ -16,6 +22,8 @@
 - 个性化面板读取最新草稿；离散颜色和开关变化单独更新背景配置与录制标识，不等待冻结解除。彩色文字和首页两次点击复制的实现、数据边界与验证见 [9 月 14 日跟进](2026-09-14-personalization-copy.md)。
 
 ## 上游约束与本地决策
+
+三点菜单后续优化：冻结状态现在也约束背景玻璃内部的位置通知，菜单交接不再使首页缓存无效；菜单实际内容在 Preparing 准备，源菜单副本及悬浮控件的动画值避免在组合阶段读取。具体边界、3 项缓存测试及缺少实机对照的限制见 [三点菜单与冻结位置更新](2026-09-14-menu-freeze-coordinates.md)。
 
 - 官方 [`DrawBackdropModifier`](https://github.com/Kyant0/AndroidLiquidGlass/blob/2.0.0/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt)会为每个 `drawBackdrop` consumer 建立自己的效果/GraphicsLayer 路径；共享 provider 不等于合并 consumer。大量同时可见玻璃的退化与 [Issue #41](https://github.com/Kyant0/AndroidLiquidGlass/issues/41) 的 32 个对象案例一致，因此本地先统计 consumer layer 和 offscreen pixels，而不是误把 provider 复用当成全部优化。
 - 独立 Popup Window 的采样坐标问题仍按 [Issue #91](https://github.com/Kyant0/AndroidLiquidGlass/issues/91) 处理：业务 Popup 保持 Activity 根 overlay/既有屏幕坐标补偿，不新建无法对齐的窗口级 provider。

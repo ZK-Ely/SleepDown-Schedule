@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import kotlinx.serialization.Serializable
 
@@ -35,9 +35,10 @@ object AiProviderPresets {
         structuredOutputMode = StructuredOutputMode.PROMPT_ONLY
     )
 
-    val openAI = AiProviderProfile(
+    // Decode old preferences/backups only; new configurations use a custom provider.
+    internal val openAI = AiProviderProfile(
         id = "openai",
-        displayName = "OpenAI",
+        displayName = "已迁移的自定义接口",
         providerType = AiProviderType.OpenAIResponses,
         baseUrl = "https://api.openai.com/v1",
         defaultModel = "gpt-5.6",
@@ -57,12 +58,32 @@ object AiProviderPresets {
         supportsPdfDirect = true
     )
 
+    // ChatGPT account credentials never enter AiImportSettings or editable API settings.
+    // The model catalog is discovered for the signed-in account, not guessed from API models.
+    val chatGpt = AiProviderProfile(
+        id = "chatgpt",
+        displayName = "ChatGPT 账号",
+        providerType = AiProviderType.OpenAIResponses,
+        authType = AiAuthType.ChatGptOAuth,
+        baseUrl = "https://api.openai.com/v1",
+        defaultModel = "",
+        capabilities = AiProviderCapabilities(
+            supportsTextInput = true,
+            supportsJsonSchema = true,
+            supportsJsonMode = true,
+            supportsStreaming = true,
+            supportsResponses = true
+        ),
+        endpointStyle = AiEndpointStyle.RESPONSES,
+        structuredOutputMode = StructuredOutputMode.JSON_SCHEMA
+    )
+
     val dailyFree = AiProviderProfile(
         id = "sleepdown_daily_free",
         displayName = "每日免费 AI",
         providerType = AiProviderType.OpenAIResponses,
-        // The hosted MiMo endpoint authenticates with `api-key`, not an OpenAI Bearer token.
-        authType = AiAuthType.CustomHeader,
+        // The active endpoint resolves authentication when the managed profile is loaded.
+        authType = AiAuthType.ApiKeyBearer,
         baseUrl = "",
         defaultModel = "",
         capabilities = AiProviderCapabilities(
@@ -263,11 +284,22 @@ object AiProviderPresets {
         availableModels = codexCompatibleModelIds
     )
 
-    val selectable = listOf(none, dailyFree, openAI, deepSeek, mimo, custom)
+    val selectable = listOf(none, dailyFree, chatGpt, deepSeek, mimo, custom)
 
-    val all = listOf(none, dailyFree, openAI, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
+    val all = listOf(none, dailyFree, chatGpt, deepSeek, dashScope, kimi, zhipu, qianfan, doubao, hunyuan, siliconFlow, miniMax, mimo, mimoTokenPlan, custom)
 
     fun isManagedFreeId(id: String): Boolean = id == dailyFree.id
+
+    fun isChatGptId(id: String): Boolean = id == chatGpt.id
+
+    /** Only account model/vision metadata and reasoning are configurable for this provider. */
+    fun normalizeChatGptProfile(profile: AiProviderProfile): AiProviderProfile = chatGpt.copy(
+        defaultModel = profile.defaultModel.trim(),
+        availableModels = profile.availableModels.map(String::trim).filter(String::isNotBlank).distinct(),
+        supportsVision = profile.supportsVision,
+        capabilities = chatGpt.capabilities.copy(supportsImageInput = profile.supportsVision),
+        reasoningEffort = chatGptReasoningEffort(profile.defaultModel, profile.reasoningEffort)
+    )
 
     fun isCustomId(id: String): Boolean = id == custom.id || id.startsWith("${custom.id}:")
 
@@ -276,7 +308,8 @@ object AiProviderPresets {
 
     fun byId(id: String): AiProviderProfile = when {
         isCustomId(id) -> customProfile(id)
-        else -> all.firstOrNull { it.id == id } ?: openAI
+        id == openAI.id -> openAI
+        else -> all.firstOrNull { it.id == id } ?: none
     }
 
     fun modelOptions(providerId: String): List<AiModelOption> = when (providerId) {
@@ -360,6 +393,16 @@ object AiProviderPresets {
     }
 
     fun modelOptions(profile: AiProviderProfile): List<AiModelOption> {
+        if (isChatGptId(profile.id)) {
+            return profile.availableModels.filter(String::isNotBlank).distinct().map { model ->
+                AiModelOption(
+                    label = model,
+                    model = model,
+                    supportsImageInput = profile.supportsVision && model == profile.defaultModel,
+                    supportsResponses = true
+                )
+            }
+        }
         val known = modelOptions(profile.id)
         val configured = profile.availableModels.mapNotNull { modelId ->
             val normalized = modelId.trim()
@@ -386,6 +429,7 @@ object AiProviderPresets {
         profile.endpointStyle == AiEndpointStyle.RESPONSES && supportsResponses(profile)
 
     fun reasoningEfforts(profile: AiProviderProfile): List<AiReasoningEffort> {
+        if (isChatGptId(profile.id)) return chatGptReasoningEfforts(profile.defaultModel)
         if (!supportsResponses(profile)) return emptyList()
         val model = profile.defaultModel.trim().lowercase()
         return when {

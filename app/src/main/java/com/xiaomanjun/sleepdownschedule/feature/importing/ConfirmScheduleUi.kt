@@ -1,20 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
-import android.content.Context
 import android.graphics.Bitmap
-import android.provider.Settings
-import android.os.Message
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,35 +18,45 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.material3.Button
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.key
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.catalog.components.LiquidPanel
-import com.kyant.backdrop.Backdrop
-import com.kyant.shapes.RoundedRectangle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.flow.map
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.roundToInt
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-
+import kotlinx.coroutines.flow.map
 
 private fun importDraftConfigurationSummary(draft: ImportDraft): String = buildList {
     add("${draft.config.totalWeeks} 周")
@@ -114,6 +110,9 @@ fun ConfirmScheduleScreen(
         warning?.let { text ->
             item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
+        importConflictNotice(previewDraft)?.let { text ->
+            item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+        }
         item { Text(importDraftConfigurationSummary(previewDraft)) }
         if (previewDraft.courses.isEmpty()) {
             item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
@@ -134,7 +133,7 @@ fun ConfirmScheduleScreen(
                     actions = listOf(
                         LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary) { onConfirm(true) },
                         LiquidAlertAction("覆盖当前课表", LiquidAlertActionStyle.Destructive) { onConfirm(false) },
-                        LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = onCancel)
+                        LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onCancel)
                     ),
                     backdrop = backdrop,
                     config = previewDraft.config
@@ -310,7 +309,7 @@ private fun AiImportChatPreview(
                 actions = listOf(
                     LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary) { onConfirm(true) },
                     LiquidAlertAction("覆盖当前课表", LiquidAlertActionStyle.Destructive) { onConfirm(false) },
-                    LiquidAlertAction("返回检查", LiquidAlertActionStyle.Secondary, onClick = onCancel)
+                    LiquidAlertAction("返回检查", LiquidAlertActionStyle.Cancel, onClick = onCancel)
                 ),
                 backdrop = backdrop,
                 config = draft.config
@@ -396,7 +395,8 @@ internal fun buildAiRevisionInput(
         draft.courses.forEachIndexed { index, course ->
             appendLine(
                 "#${index + 1} ${course.name} | 教师:${course.teacher.orEmpty()} | 地点:${course.location.orEmpty()} | " +
-                    "周${course.weekday} | 节:${course.periods.joinToString(",")} | 周次:${course.weeks.joinToString(",")} | ${course.weekParity} | 备注:${course.note.orEmpty()}"
+                    "周${course.weekday} | 节:${course.periods.joinToString(",")} | 周次:${course.weeks.joinToString(",")} | ${course.weekParity} | " +
+                    "真实时间:${course.customStartTime?.let { "$it-${course.customEndTime}" } ?: "未设置"} | 逐节:${course.customPeriodTimes ?: "默认"} | 备注:${course.note.orEmpty()}"
             )
         }
     }.trim()
@@ -411,6 +411,7 @@ internal fun buildAiRevisionInput(
         ${if (priorRequests.isNotBlank()) "此前用户要求：\n$priorRequests\n" else ""}
         用户要求：$instruction
         只修改用户明确指出的内容，保留其他课程、周次和节次。
+        课程真实时间与默认节次作息是独立字段。同节次在不同教学区域可能有不同时间和课间。replace_course 的 customStartTime、customEndTime 填 null 表示保留原值，两个都填空字符串表示清除，修改时两个都填 HH:mm。教务导入的逐节铃声只能保留原值，不能由 AI 新增或推算。
         直接调用 PATCH_SCHEDULE：replace_course 以 #编号完整替换一门课，add_course 新增，remove_course 删除，replace_periods 修改作息时间，set_total_weeks 修改总周数。只提交必要操作，不要回传完整课表。
         changeSummary 必须逐项说明本轮实际改变了哪些课程及字段；没有改动时明确说明原因，禁止写泛泛的“已完成修改”。
         只有用户要求复核、重新识别或核对原网页/附件，而当前课表不足以判断时，才调用 READ_ORIGINAL_IMPORT_SOURCE。不要为了普通字段修改读取原始材料。

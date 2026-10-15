@@ -1,10 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.PersonalizeCardColoredTextChange
-import com.xiaomanjun.sleepdownschedule.app.ui.mergePersonalizationCandidate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withPersonalizationFrom
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardColoredTextChange
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
 import org.junit.Assert.*
 import org.junit.Test
 

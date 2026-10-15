@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
 
@@ -22,7 +23,8 @@ internal fun Modifier.presetCourseCardHighlight(
     shape: Shape,
     alpha: Float,
     enabled: () -> Boolean,
-    bounds: () -> Rect? = { null }
+    bounds: () -> Rect? = { null },
+    strokeWidth: Dp = 0.5.dp
 ): Modifier = drawWithCache {
     val rect = bounds() ?: Rect(Offset.Zero, size)
     val path = Path().apply {
@@ -38,7 +40,7 @@ internal fun Modifier.presetCourseCardHighlight(
         start = rect.topLeft,
         end = rect.bottomRight
     )
-    val stroke = Stroke(ceil(0.5.dp.toPx().coerceAtMost(rect.size.minDimension / 2f)) * 2f)
+    val stroke = Stroke(ceil(strokeWidth.toPx().coerceAtMost(rect.size.minDimension / 2f)) * 2f)
     onDrawWithContent {
         drawContent()
         if (enabled() && rect.width > 0f && rect.height > 0f) {

@@ -1,17 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.manager
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.transition.legacy.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
-
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.*
-
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -45,7 +33,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,8 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import com.kyant.shapes.RoundedRectangle
-import com.kyant.shapes.Capsule
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -97,22 +82,38 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
-import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.state.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.legacy.*
+import java.time.LocalDate
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
-import kotlin.math.abs
-import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
-import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
 private val SnapshotSchoolWeekdays = (1..5).toList()
 private val SnapshotFullWeekdays = (1..7).toList()
@@ -341,8 +342,8 @@ fun ScheduleManagerScreen(
                 blurRadius = 10.dp,
                 lensHeight = 26.dp,
                 lensAmount = 34.dp,
-                surfaceColor = Color(0xFF007AFF).copy(alpha = 0.24f),
-                tint = Color(0xFF007AFF),
+                surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                tint = MaterialTheme.colorScheme.primary,
                 contentPadding = PaddingValues(horizontal = 16.dp)
             ) {
                 Text("设为", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
@@ -514,8 +515,8 @@ fun ScheduleManagerScreen(
                     .offset(x = plusOffset)
                     .size(buttonSize),
                 height = buttonSize,
-                tint = Color(0xFF007AFF),
-                surfaceColor = Color(0xFF007AFF).copy(alpha = 0.22f),
+                tint = MaterialTheme.colorScheme.primary,
+                surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                 blurRadius = 10.dp,
                 lensHeight = 30.dp,
                 lensAmount = 44.dp,
@@ -536,7 +537,7 @@ fun ScheduleManagerScreen(
             title = "删除课表",
             message = "确定要删除「${profile.name}」吗？该课表内的课程会一起删除。",
             actions = listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { deleteCandidate = null },
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { deleteCandidate = null },
                 LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
                     onDelete(profile.id)
                     deleteCandidate = null
@@ -592,7 +593,7 @@ fun ScheduleManagerScreen(
                         }
                     }
                 },
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { showShareOptions = false }
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showShareOptions = false }
             ),
             backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
@@ -1129,6 +1130,9 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
+    if (LocalHomeMaterialControls.current.NameDialog(
+            "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
+            { onSave(it.ifBlank { "未命名课表" }) })) return
     var name by remember(profile.id) { mutableStateOf(profile.name) }
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {

@@ -35,6 +35,40 @@ version. No new platform target or upstream catalog implementation is bundled.
 Gradle adapter and new extension files live here. Compare/rebase against the exact tag above;
 do not substitute a newer binary without repeating equivalence and lifecycle validation.
 
+## Popup and shared sampling follow-up (2026-10-07)
+
+`LayerBackdrop.withTransformCompensation()` is opt-in for settings popups. It maps the producer's
+complete coordinate transform into the consumer, including ancestor scale/stretch and translation.
+Separate roots use an affine screen-space basis. This avoids sampling drift without changing the
+popup's trigger, reveal curve or the existing morph-specific backdrop wrappers.
+
+`cacheSharedSamples` is enabled only by ordinary course surfaces that sample a shared wallpaper
+without a custom backdrop draw transform. A live sample is reused only when the shared producer,
+content revision, relative position, buffer size, density, font scale and layout direction match.
+Movement, wallpaper edits, source replacement and effect geometry still refresh the recording.
+Frozen scenes retain their explicit complete-scene key. The cache owns no additional GPU layer.
+`Sample.SharedReuse` is a recording counter, not frame-rate evidence.
+
+## Shared course sampling follow-up (2026-10-09)
+
+Common page translation can leave float rounding noise in `localPositionOf`. Shared sample keys
+now retain the last recorded offset within 0.001 pixels; comparisons use that recorded baseline,
+so actual motion still accumulates and refreshes. A 20-card native rendering regression originally
+observed 30 unnecessary recordings across five source-and-card translations.
+
+For opted-in shared consumers with no local RenderEffect, padding, export or custom transform,
+draw the clipped shared blur directly instead of recording it into another per-card texture.
+The shape clip, tint and decorations remain in their original order. Refraction and frozen scenes
+keep the existing sample path. `Sample.SharedBlit` records use of the direct path, not GPU time.
+
+Live shared consumers observe their own source revision and relative offset, without subscribing
+to unrelated page/group animation keys. Global position notifications with an unchanged relative
+offset do not dirty the sample layer. Frozen and non-shared consumers retain the complete scene
+key; size, density, effects and source changes still refresh through their original paths.
+
+The public patch was regenerated against the exact upstream baseline for this round, including
+previously implemented source changes that the older patch had not yet captured.
+
 ## Candidate limitations
 
 Fixed Morph and retained-node occlusion are diagnostics-only until phone/tablet visual and GPU
@@ -44,6 +78,29 @@ curve, preserve the local shape, and release the envelope at Open. Mutable shade
 never be shared across consumers. Unsupported custom export is rejected, not silently shifted.
 
 ## Host regression tests
+
+On 2026-09-14, `BackdropRenderOptions.coordinatesFrozen` adds an opt-in position-notification
+gate for retained underlays. It keeps the existing sample, effects and decoration nodes alive;
+new coordinate nodes, model/effect changes and size changes still refresh normally. Reading the
+flag in draw also invalidates once on resume. Foreground consumers keep the default live behavior.
+
+The follow-up adds `sampleRecordKey`, an opt-in completed sample-recording identity. Reuse requires
+both `coordinatesFrozen()` and a matching non-null key, size, density, font scale and layout
+direction. Live draws still record; modifier/effect geometry updates and node replacement clear
+the cached identity. This keeps the existing sampling layer and RenderEffect ownership, with no
+new bitmap or GraphicsLayer. `Sample.FrozenReuse` counts avoided recordings, not GPU frame time.
+Only a host with a complete frozen scene identity may supply this key.
+
+`ShapeProvider` retains outlines through a derived state so dynamic shapes at fixed host sizes
+still update their clipping when animation state changes. Static shapes keep cached outlines.
+`DynamicOutlineCacheTest` covers both behaviors without requiring a GPU.
+
+The Beta2 attempt to replace coordinate Snapshot notifications with `invalidateDraw()` was
+withdrawn after moving glass retained its old sample on-device. This node also places content
+with an inner layer; invalidating its outer coordinator alone does not refresh that recording.
+Coordinates again use draw-observed state with `neverEqualPolicy`, because LayoutCoordinates
+mutates in place. Frozen underlays still suppress position notifications and reuse matching
+samples; live scrolling restores the original sampling updates without changing visual quality.
 
 `SharedBlurBackdrop` shares the wallpaper prefix across course cards. The 2026-09-10 alignment
 uses NexioSchedule commit `2971759ed3bb7b16ef13e639fba5dbf2a6a9cb2d` as its reference:
@@ -75,3 +132,16 @@ test checks proportional dp conversion, stable updates and restoration to full r
 
 `testAndroidHostTest` checks completed recording reuse, unkeyed dynamic frames, content/geometry
 changes and lifecycle reset. These tests do not measure GPU execution or prove pixel equivalence.
+
+The 2026-10-09 refraction follow-up uses Nexio
+[`a259d6f` RuntimeShaderCache](https://github.com/HaoZai000/NexioSchedule/blob/a259d6f45cc7eeb4526113cab48c7b9b19d98fc2/app/src/main/java/com/kyant/backdrop/RuntimeShaderCache.kt)
+as the shared-program reference. Effect consumers now share compiled shader builders while each
+card immediately creates its own native RenderEffect with its own uniforms. The 0.48 sampled
+geometry, per-card refraction buffer, effect key, rounded draw clipping and full-resolution
+decorations stay unchanged. Direct shared-layer blitting remains limited to effect-free cards.
+
+SleepDown limits sharing to effect builders: cached highlight Paint shaders retain node ownership.
+The registry is local to the rendering thread, keys include both name and source, and the last
+consumer releases a program. Thus switching to material-free rendering does not leave a process-wide
+shader pool alive. `Shader.ProgramCreated`, `Shader.ProgramReused` and `Shader.ProgramReleased`
+report this ownership; they do not measure GPU shader execution time.

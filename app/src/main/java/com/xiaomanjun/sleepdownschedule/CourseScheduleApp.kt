@@ -2,15 +2,20 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
 
 import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.reminder.LegacyDndStateReceiver
 
 import android.app.ActivityManager
 import android.app.Application
+import android.app.NotificationManager
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -33,6 +38,8 @@ import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreService
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentRepository
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceRepository
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncAutoRefresher
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**
@@ -59,18 +66,39 @@ class CourseScheduleApp : Application() {
         super.onCreate()
         // :ocr 是即用即弃的识别进程（用完自杀回收原生内存），跳过全部应用初始化
         if (isOcrServiceProcess()) return
+        AppMaterialPreferences.load(this)
+        com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager.initialize(this)
         AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
         AppIconManager.applyStoredMode(this)
+        AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
+        com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
         SleepDownRemoteConfig.initialize(this, applicationScope)
         ActivityTransitionCoordinator.install(this)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) ColorOSCourseBridge.install(this, database)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) {
+            applicationScope.launch(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(this@CourseScheduleApp) }
+        }
         ContextCompat.registerReceiver(
             this,
             CourseAlarmReceiver(),
             IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_USER_PRESENT) },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(this, TodayCoursesWidgetProvider(),
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_CONFIGURATION_CHANGED) },
+            ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Before Android 10, interruption-filter broadcasts reach only registered receivers.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            ContextCompat.registerReceiver(
+                this,
+                LegacyDndStateReceiver(),
+                IntentFilter(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.checkOnForeground(this@CourseScheduleApp)
                 setTaskExcludedFromRecents(false)
                 NotificationScheduler.requestRefresh(this@CourseScheduleApp)
             }
@@ -155,7 +183,7 @@ class CourseScheduleApp : Application() {
 
     private suspend fun cleanupPersistedAppData() {
         runCatching {
-            BackupRestoreService(this, database).resumePending()
+            BackupRestoreService(this, database).resumePending { cleanupAfterBackupRecovery() }
         }.onSuccess { results ->
             results.flatMap { it.warnings }.forEach { warning ->
                 Log.w("CourseScheduleApp", "Backup restore resume: $warning")
@@ -163,9 +191,13 @@ class CourseScheduleApp : Application() {
         }.onFailure { error ->
             Log.w("CourseScheduleApp", "Backup restore resume failed", error)
         }
+    }
+
+    private suspend fun cleanupAfterBackupRecovery() {
         cleanupTransientCacheData()
         runCatching {
             repository.ensureDefaults()
+            repository.migrateLegacyPeriodSchemeLibrary(this)
             cleanupUnreferencedScheduleWallpapers(this, repository.referencedWallpaperUris())
             ScheduleSnapshotStore.cleanupUnreferenced(this, repository.referencedScheduleIds())
         }.onFailure { error ->

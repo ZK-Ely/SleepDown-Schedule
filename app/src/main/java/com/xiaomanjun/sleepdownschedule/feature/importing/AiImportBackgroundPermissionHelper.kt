@@ -130,7 +130,7 @@ internal fun AiImportBackgroundPermissionTip(
         actions = listOf(
             LiquidAlertAction(
                 label = "取消",
-                style = LiquidAlertActionStyle.Secondary,
+                style = LiquidAlertActionStyle.Cancel,
                 onClick = state::cancelAndContinue
             ),
             LiquidAlertAction(

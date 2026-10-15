@@ -30,11 +30,11 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -44,18 +44,18 @@ import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent
-import com.xiaomanjun.sleepdownschedule.feature.home.day.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.week.weekEditLandingImpactTransform
-import com.xiaomanjun.sleepdownschedule.domain.schedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 internal data class CourseCopyFlightFrame(val center: Offset, val width: Float, val height: Float, val rotation: Float)
 
@@ -80,9 +80,20 @@ internal fun courseCopyGridTap(
     }
     val physicalColumn = (point.x / (grid.width / weekdays.size)).toInt()
     val column = if (grid.rightToLeft) weekdays.lastIndex - physicalColumn else physicalColumn
-    val periodIndex = selected?.periodIndex ?: grid.periodIndexes[(point.y / grid.rowHeight).toInt()]
-    val course = selected?.course ?: courseCopyAtSlot(draft, weekdays[column], periodIndex, periods)
-        ?: return controller.reject("节次不足，请往前选")
+    // Snap the card's center to the tap, including exact-time cards whose height varies by slot.
+    // Keep conflict validation on the chosen target; never silently move it to another free slot.
+    val centeredTarget = if (selected == null) {
+        grid.periodIndexes.asSequence().mapNotNull { index ->
+            val candidate = courseCopyAtSlot(draft, weekdays[column], index, periods)
+                ?: return@mapNotNull null
+            val card = courseCopyBounds(candidate, localGrid, weekdays, periods).firstOrNull()
+                ?: return@mapNotNull null
+            Triple(index, candidate, kotlin.math.abs(card.center.y - point.y))
+        }.minByOrNull { it.third }
+    } else null
+    val periodIndex = selected?.periodIndex ?: centeredTarget?.first
+        ?: return controller.reject("节次不足，请换个位置")
+    val course = selected?.course ?: checkNotNull(centeredTarget).second
     val bounds = courseCopyBounds(course, grid, weekdays, periods)
     if (bounds.isEmpty()) return controller.reject("请换个位置")
     val sourceBounds = courseCopyBounds(source.course, grid, weekdays, periods).firstOrNull()

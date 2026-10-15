@@ -10,16 +10,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.BackdropEffectScope
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.effect
 import com.kyant.backdrop.effects.runtimeShaderEffect
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
@@ -27,7 +28,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 
-// Chromium-backed pages retain SleepDown's original blur + alpha-mask composition.
+// On devices without the native operator, Chromium retains blur + alpha-mask composition.
 internal val LocalLegacyProgressiveBlur = staticCompositionLocalOf { false }
 
 enum class ProgressiveBlurDirection {
@@ -91,7 +92,11 @@ fun Modifier.progressiveBackdropBlur(
     radiusFadeStart: Float = 0f,
     fallbackTintStops: List<Pair<Float, Color>>
 ): Modifier {
-    val useLegacyBlur = LocalLegacyProgressiveBlur.current
+    // Nexio's performance path uses a single Gaussian blur plus a gradient mask instead
+    // of the variable-radius sampling and denoise shaders. Keep the same tint/fade inputs.
+    val useLegacyBlur = LocalLegacyProgressiveBlur.current ||
+        com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().simplifiedProgressiveBlur
+    val nativeBlur = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeProgressiveBlur.current
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
         val material = remember(blurRadius, tintIntensity) {
             // Pure progressive blur: strip the default highlight/shadow/inner-shadow decorations
@@ -113,15 +118,22 @@ fun Modifier.progressiveBackdropBlur(
         val blurShapeBlock: () -> Shape = remember { { RectangleShape } }
         val blurEffects: BackdropEffectScope.() -> Unit = remember(
             blurRadius, direction, tintColor, tintIntensity,
-            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd, radiusFadeStart, useLegacyBlur
+            topMaskFadeStart, topMaskFadeEnd, topTintFadeStart, topTintFadeEnd, radiusFadeStart, useLegacyBlur, nativeBlur
         ) {
             {
-                if (direction == ProgressiveBlurDirection.TopToBottom && !useLegacyBlur) {
+                if (nativeBlur == null && direction == ProgressiveBlurDirection.TopToBottom && !useLegacyBlur) {
                     // True variable-radius blur, sampled at full resolution. Backdrop 2 owns
                     // the shader cache per node, so there is no process-global shader registry.
                     nexioProgressiveBlur(blurRadius.toPx(), tintColor, tintIntensity, radiusFadeStart)
                 } else {
-                blur(blurRadius.toPx())
+                if (nativeBlur != null) {
+                    val vertical = direction == ProgressiveBlurDirection.TopToBottom || direction == ProgressiveBlurDirection.BottomToTop
+                    val increasing = direction == ProgressiveBlurDirection.BottomToTop ||
+                        direction == ProgressiveBlurDirection.LeftToRight || direction == ProgressiveBlurDirection.RailThreeWay
+                    val radius = blurRadius.toPx()
+                    nativeBlur.create(if (increasing) 0f else radius, if (increasing) radius else 0f, vertical)
+                        ?.let { effect(it) }
+                } else blur(blurRadius.toPx())
                 runtimeShaderEffect(
                     "ProgressiveBackdropBlur_${direction.name}",
                     progressiveBlurShaderSource(direction),
@@ -139,6 +151,7 @@ fun Modifier.progressiveBackdropBlur(
             }
         }
         sleepDownPlainGlassSurface(
+            usage = com.xiaomanjun.sleepdownschedule.core.performance.MaterialUsage.SCENE_BLUR,
             backdrop = backdrop,
             descriptor = descriptor,
             material = material,

@@ -2,10 +2,10 @@ package com.xiaomanjun.sleepdownschedule.core.identity
 
 import android.content.ComponentName
 import android.content.Context
-import android.content.res.Configuration
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import androidx.core.content.edit
-import com.xiaomanjun.sleepdownschedule.feature.backup.BackupAppIconPreferences
+import com.xiaomanjun.sleepdownschedule.model.AppIconPreferencesSnapshot
 
 enum class AppIconMode(val label: String) {
     LIGHT("浅色"),
@@ -99,7 +99,7 @@ fun currentIconResId(
     }
 }
 
-/** Fixed full-color PNGs for SystemUI, independent of launcher/night resource resolution. */
+/** Fixed full-color drawable aliases for SystemUI, sharing each explicit light/dark PNG. */
 fun currentLiveUpdateIconResId(context: Context): Int {
     val dark = when (AppIconManager.currentMode(context)) {
         AppIconMode.LIGHT -> false
@@ -153,9 +153,9 @@ object AppIconManager {
             .getOrDefault(AppIconStyle.KANBAN)
     }
 
-    fun backupPreferences(context: Context): BackupAppIconPreferences {
+    fun backupPreferences(context: Context): AppIconPreferencesSnapshot {
         val storage = preferences(context)
-        return BackupAppIconPreferences(
+        return AppIconPreferencesSnapshot(
             mode = currentMode(context).name,
             style = currentStyle(context).name,
             followsSystemDarkMode = storage.getBoolean(FollowsSystemDarkModeKey, true),
@@ -163,7 +163,7 @@ object AppIconManager {
         )
     }
 
-    fun applyBackupPreferences(context: Context, backup: BackupAppIconPreferences) {
+    fun applyBackupPreferences(context: Context, backup: AppIconPreferencesSnapshot) {
         val mode = runCatching { AppIconMode.valueOf(backup.mode) }
             .getOrElse { throw IllegalArgumentException("未知 app icon mode: ${backup.mode}") }
         val style = runCatching { AppIconStyle.valueOf(backup.style) }
@@ -182,14 +182,15 @@ object AppIconManager {
         preferences(context).edit {
             putString(ModeKey, mode.name)
         }
-        applyStoredMode(context)
+        // CourseScheduleApp publishes launcher aliases on process ON_STOP. Changing the
+        // foreground activity's alias can make OEM launchers destroy the visible task even
+        // with DONT_KILL_APP; retain the user's selection now and apply it after they leave.
     }
 
     fun setStyle(context: Context, style: AppIconStyle) {
         preferences(context).edit {
             putString(StyleKey, style.name)
         }
-        applyStoredMode(context)
     }
 
     fun syncAppearance(
@@ -223,7 +224,7 @@ object AppIconManager {
                 setAliasEnabled(packageManager, context, alias, enabled = false)
             }
         setAliasEnabled(packageManager, context, desired, enabled = true)
-        com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler.refreshLiveUpdateIcon(context)
+        refreshAppNotificationIcons(context)
         val iconResId = currentIconResId(context)
         if (lastAppliedIconResId != iconResId) {
             lastAppliedIconResId = iconResId

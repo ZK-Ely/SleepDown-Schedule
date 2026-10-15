@@ -1,24 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
-import android.content.Context
-import android.os.Message
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -27,7 +13,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,7 +29,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -53,104 +39,119 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.material3.Card
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.key
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import org.json.JSONArray
-import org.json.JSONObject
+import androidx.compose.ui.zIndex
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
-import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.Shadow
-import com.kyant.shapes.RoundedCornerStyle
-import com.kyant.shapes.RoundedRectangle
-import com.kyant.shapes.Capsule
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.DisposableEffect
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
+import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
 import kotlin.math.abs
-import kotlin.math.min
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 @Composable
 fun EduSchoolPickerScreen(
     state: AppState,
     backdrop: Backdrop? = null,
     warehouseGeneration: Int = 0,
+    availableAdapters: List<EduAdapter>? = null,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
-    val adapters = remember(warehouseGeneration) {
-        runCatching { ShiguangWarehouse.loadAdapters(context) }
+    val adapters = availableAdapters ?: remember(warehouseGeneration) {
+        runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
-            // WakeUp and StarLink already share the AI manual-import input. The two GLOBAL_TOOLS
-            // component fixtures are upstream development pages rather than user-facing imports.
-            .filterNot { it.isManualShareCodeTool() || it.isDevelopmentOnlyGeneralTool() }
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -175,6 +176,7 @@ fun EduSchoolPickerScreen(
         state = state,
         backdrop = backdrop,
         adapters = filtered,
+        adapterBadge = adapterBadge,
         query = query,
         onQueryChange = { query = it },
         onSelect = { school ->
@@ -195,7 +197,7 @@ fun EduSchoolPickerScreen(
             actions = listOf(
                 LiquidAlertAction(
                     label = "取消",
-                    style = LiquidAlertActionStyle.Secondary,
+                    style = LiquidAlertActionStyle.Cancel,
                     onClick = { adapterChoices = null }
                 ),
                 LiquidAlertAction(
@@ -213,11 +215,15 @@ fun EduSchoolPickerScreen(
             backdrop = backdrop,
             config = state.config,
             onDismissRequest = { adapterChoices = null },
+            messageMaxHeight = SleepDownDesignTokens.CenteredDialog.SelectionContentMaxHeight,
+            scrollableMessageContent = true,
+            isSelector = true,
             messageContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { adapter ->
                         EduAdapterChoiceCard(
                             adapter = adapter,
+                            badgeText = adapterBadge(adapter),
                             selected = adapter.adapterId == selectedAdapterId,
                             config = state.config,
                             onClick = { selectedAdapterId = adapter.adapterId }
@@ -232,83 +238,24 @@ fun EduSchoolPickerScreen(
 @Composable
 private fun EduAdapterChoiceCard(
     adapter: EduAdapter,
+    badgeText: String?,
     selected: Boolean,
     config: ScheduleConfigEntity,
     onClick: () -> Unit
 ) {
-    val foreground = sleepDownPanelForegroundColor(config)
-    val dark = appUsesDarkTheme(config)
-    val accent = ComposeColor(0xFF0A84FF)
     val details = buildList {
         add(eduAdapterCategoryLabel(adapter.category))
         adapter.maintainer.takeIf(String::isNotBlank)?.let { add(it) }
         adapter.description.takeIf(String::isNotBlank)?.let { add(it) }
     }.joinToString(" · ")
-    Surface(
+    LiquidDialogChoiceCard(
+        title = adapter.adapterName,
+        selected = selected,
+        config = config,
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 68.dp),
-        shape = RoundedRectangle(
-            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
-                SleepDownDesignTokens.CenteredDialog.ContentPadding -
-                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
-            style = RoundedCornerStyle.Continuous
-        ),
-        color = if (selected) {
-            accent.copy(alpha = if (dark) 0.24f else 0.13f)
-        } else {
-            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
-        },
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
-        ),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = adapter.adapterName,
-                    color = foreground,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (details.isNotBlank()) {
-                    Text(
-                        text = details,
-                        color = foreground.copy(alpha = 0.62f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(Capsule())
-                    .background(
-                        if (selected) accent else foreground.copy(alpha = 0.10f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(Capsule())
-                            .background(ComposeColor.White)
-                    )
-                }
-            }
-        }
-    }
+        description = details,
+        badgeText = badgeText
+    )
 }
 
 private data class EduSchoolAdapterGroup(
@@ -323,8 +270,26 @@ fun EduSchoolIndexedSelectScreen(
     adapters: List<EduAdapter>,
     query: String,
     onQueryChange: (String) -> Unit,
+    adapterBadge: (EduAdapter) -> String? = { null },
     onSelect: (EduSchool) -> Unit
 ) {
+    val window = LocalActivity.current?.window
+    DisposableEffect(window) {
+        val originalSoftInputMode = window?.attributes?.softInputMode
+        if (window != null && originalSoftInputMode != null) {
+            // The search dock owns IME displacement, just as in EduSchoolSelectActivityHost.
+            // Settings and embedded hosts must not also resize or pan their content.
+            window.setSoftInputMode(
+                (originalSoftInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            )
+        }
+        onDispose {
+            if (window != null && originalSoftInputMode != null) {
+                window.setSoftInputMode(originalSoftInputMode)
+            }
+        }
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -404,27 +369,32 @@ fun EduSchoolIndexedSelectScreen(
     val floatingSearchDock: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
         remember(floatingOverlayHost) {
             @Composable {
+                EduSchoolDockViewport { bottomInset ->
+                val controlsModifier = floatingOverlayHost.controlsModifier()
                 EduSchoolSearchDock(
                     value = currentSearchQuery.value,
                     onValueChange = currentSearchOnChange.value,
                     backdrop = currentSearchBackdrop.value,
                     config = currentSearchConfig.value,
-                    imeLift = currentSearchImeLift.value
+                    imeLift = currentSearchImeLift.value,
+                    bottomInset = bottomInset,
+                    controlsModifier = controlsModifier
                 )
                 // The alphabet rail floats at the same root level as the top bar, as a sibling of
                 // the Miuix Scaffold instead of a page child. Its gradient blur therefore keeps a
                 // full-window envelope and can no longer be cropped by the card/list subtrees.
-                EduAlphabetRailDock(
+                Box(Modifier.fillMaxSize().then(controlsModifier)) { EduAlphabetRailDock(
                     listState = currentRailListState.value,
                     letters = currentRailLetters.value,
                     sectionPositions = currentRailPositions.value,
                     backdrop = currentSearchBackdrop.value,
                     config = currentSearchConfig.value,
                     topPadding = currentRailTopPadding.value,
-                    imeLift = currentSearchImeLift.value,
+                    bottomInset = bottomInset,
                     scope = currentRailScope.value,
                     haptic = currentRailHaptic.value
-                )
+                ) }
+                }
             }
         }
     } else {
@@ -515,6 +485,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = aiEduSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -526,6 +497,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = pinnedSchools,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -537,6 +509,7 @@ fun EduSchoolIndexedSelectScreen(
                                 schools = list,
                                 state = state,
                                 backdrop = backdrop,
+                                adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
                         }
@@ -547,12 +520,14 @@ fun EduSchoolIndexedSelectScreen(
         // In the detail scaffold this dock is mounted by the root-level sibling host below the
         // Miuix Scaffold. The fallback keeps previews/other callers usable before that host exists.
         if (!rootOverlayMounted) {
+            EduSchoolDockViewport { bottomInset ->
             EduSchoolSearchDock(
                 value = query,
                 onValueChange = onQueryChange,
                 backdrop = overlayBackdrop,
                 config = state.config,
-                imeLift = imeLift
+                imeLift = imeLift,
+                bottomInset = bottomInset
             )
             EduAlphabetRailDock(
                 listState = listState,
@@ -561,11 +536,31 @@ fun EduSchoolIndexedSelectScreen(
                 backdrop = overlayBackdrop,
                 config = state.config,
                 topPadding = topPadding,
-                imeLift = imeLift,
+                bottomInset = bottomInset,
                 scope = scope,
                 haptic = haptic
             )
+            }
         }
+    }
+}
+
+@Composable
+private fun EduSchoolDockViewport(content: @Composable (Dp) -> Unit) {
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navigationBottom = WindowInsets.navigationBars.getBottom(density)
+    // Height can itself change under adjustResize; it must not erase the closed-keyboard baseline.
+    var closedBottom by remember(configuration.screenWidthDp, configuration.orientation, density.density) { mutableIntStateOf(0) }
+    var currentBottom by remember { mutableIntStateOf(0) }
+    val remaining = schoolDockBottomInsetPx(imeBottom, navigationBottom, closedBottom, currentBottom)
+    Box(Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+        val bottom = (coordinates.positionOnScreen().y + coordinates.size.height).toInt()
+        currentBottom = bottom
+        if (imeBottom <= navigationBottom) closedBottom = bottom
+    }) {
+        content(with(density) { remaining.toDp() })
     }
 }
 
@@ -578,18 +573,15 @@ private fun EduAlphabetRailDock(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     topPadding: Dp,
-    imeLift: Dp,
+    bottomInset: Dp,
     scope: CoroutineScope,
     haptic: HapticFeedback
 ) {
     if (letters.isEmpty()) return
     val density = LocalDensity.current
-    val navigationBarBottom = with(density) {
-        WindowInsets.navigationBars.getBottom(density).toDp()
-    }
     // Center the rail only in the usable list window: the measured top bar and the entire search
     // dock (including its safe-area/IME lift) are excluded from the centering bounds.
-    val alphabetRailBottomExclusion = 44.dp + 18.dp + navigationBarBottom + imeLift
+    val alphabetRailBottomExclusion = 44.dp + 18.dp + bottomInset
     var railDragging by remember { mutableStateOf(false) }
     var railPointerIndex by remember { mutableIntStateOf(-1) }
     val railScrolling by remember {
@@ -812,6 +804,7 @@ private fun EduAlphabetRailDock(
 @Composable
 private fun EduSchoolGroupCard(
     schools: List<EduSchoolAdapterGroup>,
+    adapterBadge: (EduAdapter) -> String?,
     state: AppState,
     backdrop: Backdrop?,
     onSelect: (EduSchool) -> Unit
@@ -825,6 +818,7 @@ private fun EduSchoolGroupCard(
             SettingsNavigationRow(
                 title = group.school.name,
                 subtitle = group.adapters.joinToString(" / ") { it.adapterName },
+                badgeText = group.adapters.firstNotNullOfOrNull(adapterBadge),
                 onClick = { onSelect(group.school) }
             )
         }
@@ -852,20 +846,18 @@ private fun EduSchoolSearchDock(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    imeLift: Dp
+    imeLift: Dp,
+    bottomInset: Dp,
+    controlsModifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
     val entranceProgress = remember { Animatable(0f) }
     val searchDockBottomPadding = 18.dp
-    val navigationBarBottom = with(density) {
-        WindowInsets.navigationBars.getBottom(density).toDp()
-    }
     val searchDockTint = if (appUsesDarkTheme(config)) {
         ComposeColor(0xFF1A1A1D)
     } else {
         ComposeColor.White
     }
-    val searchDockGradientHeight = 168.dp + imeLift
+    val searchDockGradientHeight = 168.dp + bottomInset
 
     LaunchedEffect(Unit) {
         entranceProgress.animateTo(
@@ -907,13 +899,14 @@ private fun EduSchoolSearchDock(
             backdrop = backdrop,
             config = config,
             keyboardLift = imeLift,
-            bottomOffset = searchDockBottomPadding + navigationBarBottom + imeLift,
+            bottomOffset = searchDockBottomPadding + bottomInset,
             entranceProgress = entranceProgress.value,
             modifier = Modifier
                 // Give the control the whole window as its layout envelope. Only its two visible
                 // capsules are positioned near the bottom; no 44/60dp parent can crop the Kyant
                 // shadow, refraction or press expansion anymore.
                 .fillMaxSize()
+                .then(controlsModifier)
                 .graphicsLayer { clip = false }
                 .zIndex(1f)
         )
@@ -932,6 +925,10 @@ fun SchoolSearchField(
     modifier: Modifier = Modifier
 ) {
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
+    if (LocalHomeMaterialControls.current.SearchField(
+            value, onValueChange, appUsesDarkTheme(config), bottomOffset,
+            entranceProgress, isLargeScreen, modifier
+        )) return
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val foreground = sleepDownPanelForegroundColor(config)
@@ -1094,11 +1091,8 @@ fun SchoolSearchField(
             (bottomOffset - EduSearchVerticalOverscan).coerceAtLeast(0.dp)
         val actionLabel = if (value.isBlank()) "取消" else "搜索"
         // 大屏下整个底部 dock 居中，action slot 相对居中后的 field slot 定位。
-        val actionSlotOffsetX = if (isLargeScreen) {
-            (maxWidth - fieldWidth) / 2 + fieldWidth + actionGap - actionRenderOverscan
-        } else {
-            horizontalInset + fieldWidth + actionGap - actionRenderOverscan
-        }
+        val dockStart = if (isLargeScreen) (maxWidth - visualDockWidth) / 2 else horizontalInset
+        val actionSlotOffsetX = dockStart + fieldWidth + actionGap - actionRenderOverscan
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1106,11 +1100,11 @@ fun SchoolSearchField(
         ) {
             Box(
                 modifier = Modifier
-                    .align(if (isLargeScreen) Alignment.BottomCenter else Alignment.BottomStart)
+                    .align(Alignment.BottomStart)
                     .width(fieldSlotWidth)
                     .height(renderEnvelopeHeight)
                     .offset(
-                        x = if (isLargeScreen) 0.dp else horizontalInset - fieldRenderOverscan,
+                        x = dockStart - fieldRenderOverscan,
                         y = -renderEnvelopeBottomOffset + entranceTranslation
                     )
                     .graphicsLayer {
@@ -1291,7 +1285,8 @@ internal fun EduBridgeInteractionDialog(
     bridge: ShiguangBridgeHost,
     state: AppState,
     backdrop: Backdrop?,
-    onFinished: () -> Unit
+    onFinished: () -> Unit,
+    resolveInteraction: (String, String) -> Unit = bridge::resolveInteraction
 ) {
     when (request) {
         null -> Unit
@@ -1304,14 +1299,14 @@ internal fun EduBridgeInteractionDialog(
                         label = request.confirmText,
                         style = LiquidAlertActionStyle.Primary
                     ) {
-                        bridge.resolveEduBridgeInteraction(request.requestId, "true")
+                        resolveInteraction(request.requestId, "true")
                         onFinished()
                     }
                 ),
                 backdrop = backdrop,
                 config = state.config,
                 onDismissRequest = {
-                    bridge.resolveEduBridgeInteraction(request.requestId, "false")
+                    resolveInteraction(request.requestId, "false")
                     onFinished()
                 }
             )
@@ -1320,14 +1315,14 @@ internal fun EduBridgeInteractionDialog(
             var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
             var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
             fun cancel() {
-                bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                resolveInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
                 validateEduBridgePrompt(bridge, request, value) { error ->
                     validationError = error
                     if (error == null) {
-                        bridge.resolveEduBridgeInteraction(request.requestId, JSONObject.quote(value))
+                        resolveInteraction(request.requestId, JSONObject.quote(value))
                         onFinished()
                     }
                 }
@@ -1338,7 +1333,7 @@ internal fun EduBridgeInteractionDialog(
                 actions = listOf(
                     LiquidAlertAction(
                         label = "取消",
-                        style = LiquidAlertActionStyle.Secondary,
+                        style = LiquidAlertActionStyle.Cancel,
                         onClick = ::cancel
                     ),
                     LiquidAlertAction(
@@ -1384,7 +1379,7 @@ internal fun EduBridgeInteractionDialog(
         is EduBridgeInteractionRequest.SingleSelection -> {
             if (request.options.isEmpty()) {
                 fun cancel() {
-                    bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                    resolveInteraction(request.requestId, "null")
                     onFinished()
                 }
                 LiquidAlertDialog(
@@ -1409,12 +1404,12 @@ internal fun EduBridgeInteractionDialog(
             var visible by remember(request.requestId) { mutableStateOf(true) }
             var completion by remember(request.requestId) { mutableStateOf<(() -> Unit)?>(null) }
             fun cancel() {
-                bridge.resolveEduBridgeInteraction(request.requestId, "null")
+                resolveInteraction(request.requestId, "null")
                 onFinished()
             }
             fun submit() {
                 if (selectedIndex !in request.options.indices) return
-                bridge.resolveEduBridgeInteraction(request.requestId, selectedIndex.toString())
+                resolveInteraction(request.requestId, selectedIndex.toString())
                 onFinished()
             }
             fun closeThen(action: () -> Unit) {

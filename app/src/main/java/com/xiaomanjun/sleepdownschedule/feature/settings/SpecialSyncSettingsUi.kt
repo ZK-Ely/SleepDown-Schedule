@@ -1,8 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.DockScrollPadding
-import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle

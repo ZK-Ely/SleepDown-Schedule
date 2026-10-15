@@ -34,7 +34,10 @@ internal data class AiImportNetworkContext(
     val imageCount: Int = 0,
     val screenshotCount: Int = 0,
     val onPhase: (AiImportHttpPhase) -> Unit = {},
-    val processImportanceProvider: () -> Int? = { null }
+    val processImportanceProvider: () -> Int? = { null },
+    val onReasoningUpdate: ((String) -> Unit)? = null,
+    val interaction: AiImportInteraction? = null,
+    val assistantMemory: String = ""
 )
 
 enum class StructuredOutputMode {
@@ -70,7 +73,8 @@ enum class AiReasoningEffort(val apiValue: String, val label: String) {
 enum class AiAuthType {
     ApiKeyBearer,
     OpenAIProjectKey,
-    CustomHeader
+    CustomHeader,
+    ChatGptOAuth
 }
 
 @Serializable
@@ -116,8 +120,13 @@ data class AiProviderProfile(
 
 data class AiImportSettings(
     val profile: AiProviderProfile = AiProviderPresets.none,
-    val apiKey: String = ""
+    val apiKey: String = "",
+    val managedRouteId: String? = null
 )
+
+/** OAuth credentials are resolved only at the HTTP boundary, never kept in provider settings. */
+internal fun AiImportSettings.hasCredentialConfiguration(): Boolean =
+    profile.id == AiProviderPresets.chatGpt.id || apiKey.isNotBlank()
 
 data class AiProviderConfig(
     val providerId: String,
@@ -211,7 +220,8 @@ data class AiScheduleImportResult(
     val output: String,
     val routeMessage: String,
     val rawOutput: String = output,
-    val reasoningOutput: String = ""
+    val reasoningOutput: String = "",
+    val managedRouteId: String? = null
 )
 
 data class AiProviderTextResult(
@@ -223,7 +233,8 @@ data class AiProviderTextResult(
 class AiServiceResponseException(
     message: String,
     val rawBody: String,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val httpStatus: Int? = null
 ) : IllegalStateException(message, cause)
 
 fun Throwable.aiRawResponseBody(): String? {

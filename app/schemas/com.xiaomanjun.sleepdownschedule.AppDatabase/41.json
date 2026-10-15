@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 41,
-    "identityHash": "7057c6f199a57bbd41eac65ba357f307",
+    "identityHash": "c30c7d5aa8a4dca02d4d7603eef940ac",
     "entities": [
       {
         "tableName": "courses",
@@ -121,7 +121,7 @@
       },
       {
         "tableName": "schedule_config",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `totalWeeks` INTEGER NOT NULL, `currentWeek` INTEGER NOT NULL, `notificationLeadMinutes` INTEGER NOT NULL, `termStartDate` TEXT, `autoCurrentWeek` INTEGER NOT NULL, `termState` TEXT NOT NULL DEFAULT 'MANUAL', `notificationsEnabled` INTEGER NOT NULL, `notificationMode` TEXT NOT NULL, `wallpaperUri` TEXT, `wallpaperBlur` REAL NOT NULL, `wallpaperBrightness` REAL NOT NULL, `wallpaperPortraitCenterX` REAL, `wallpaperPortraitCenterY` REAL, `wallpaperPortraitScale` REAL, `wallpaperLandscapeCenterX` REAL, `wallpaperLandscapeCenterY` REAL, `wallpaperLandscapeScale` REAL, `wallpaperSourceWidth` INTEGER, `wallpaperSourceHeight` INTEGER, `cardColorArgb` INTEGER NOT NULL, `cardAlpha` REAL NOT NULL, `courseCardBlur` REAL NOT NULL, `courseCardGlassEnabled` INTEGER NOT NULL, `courseCardOutlineLightEnabled` INTEGER NOT NULL DEFAULT 1, `courseCardRefractionStrength` REAL NOT NULL DEFAULT 0.5, `courseCardGaussianBlurEnabled` INTEGER NOT NULL DEFAULT 1, `courseCardColoredTextEnabled` INTEGER NOT NULL DEFAULT 0, `courseCardFontScale` REAL NOT NULL, `courseCardColorMode` TEXT NOT NULL DEFAULT 'SOLID', `courseCardPalette` TEXT NOT NULL DEFAULT '', `alternateCardColorArgb` INTEGER NOT NULL DEFAULT 4293516543, `alternateCardAlpha` REAL NOT NULL DEFAULT 1, `alternateCourseCardBlur` REAL NOT NULL DEFAULT 18, `alternateCourseCardFontScale` REAL NOT NULL DEFAULT 1, `alternateCourseCardColorMode` TEXT NOT NULL DEFAULT 'SOLID', `alternateCourseCardPalette` TEXT NOT NULL DEFAULT '', `weekCardHeightDp` REAL, `weekCardHeightScale` REAL NOT NULL DEFAULT 1, `weekCardCornerProgress` REAL NOT NULL DEFAULT 0.5, `homeTextLight` INTEGER NOT NULL, `homeChromeBlurScale` REAL NOT NULL DEFAULT 1, `homeChromeSamplingScale` REAL NOT NULL DEFAULT 1, `followSystemDarkMode` INTEGER NOT NULL, `darkMode` INTEGER NOT NULL, `defaultWallpaperStyle` TEXT NOT NULL, `hideEmptyWeekends` INTEGER NOT NULL, `dockAlignment` TEXT NOT NULL, `defaultHomeMode` TEXT NOT NULL, `liveUpdateActionsEnabled` INTEGER NOT NULL, `liveUpdateChipTextMode` TEXT NOT NULL, `classDurationMinutes` INTEGER NOT NULL, `breakDurationMinutes` INTEGER NOT NULL, `morningPeriodCount` INTEGER NOT NULL DEFAULT 0, `noonPeriodCount` INTEGER NOT NULL DEFAULT 0, `afternoonPeriodCount` INTEGER NOT NULL DEFAULT 0, `eveningPeriodCount` INTEGER NOT NULL DEFAULT 0, `hideFromRecents` INTEGER NOT NULL, `autoCheckUpdates` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `totalWeeks` INTEGER NOT NULL, `currentWeek` INTEGER NOT NULL, `notificationLeadMinutes` INTEGER NOT NULL, `termStartDate` TEXT, `autoCurrentWeek` INTEGER NOT NULL, `termState` TEXT NOT NULL DEFAULT 'MANUAL', `notificationsEnabled` INTEGER NOT NULL, `notificationMode` TEXT NOT NULL, `wallpaperUri` TEXT, `wallpaperBlur` REAL NOT NULL, `wallpaperBrightness` REAL NOT NULL, `wallpaperPortraitCenterX` REAL, `wallpaperPortraitCenterY` REAL, `wallpaperPortraitScale` REAL, `wallpaperLandscapeCenterX` REAL, `wallpaperLandscapeCenterY` REAL, `wallpaperLandscapeScale` REAL, `wallpaperSourceWidth` INTEGER, `wallpaperSourceHeight` INTEGER, `cardColorArgb` INTEGER NOT NULL, `cardAlpha` REAL NOT NULL, `courseCardBlur` REAL NOT NULL, `courseCardGlassEnabled` INTEGER NOT NULL, `courseCardOutlineLightEnabled` INTEGER NOT NULL DEFAULT 1, `courseCardRefractionStrength` REAL NOT NULL DEFAULT 0.5, `courseCardGaussianBlurEnabled` INTEGER NOT NULL DEFAULT 1, `courseCardColoredTextEnabled` INTEGER NOT NULL DEFAULT 0, `courseCardFontScale` REAL NOT NULL, `courseCardColorMode` TEXT NOT NULL DEFAULT 'SOLID', `courseCardPalette` TEXT NOT NULL DEFAULT '', `alternateCardColorArgb` INTEGER NOT NULL DEFAULT 4293516543, `alternateCardAlpha` REAL NOT NULL DEFAULT 1, `alternateCourseCardBlur` REAL NOT NULL DEFAULT 18, `alternateCourseCardFontScale` REAL NOT NULL DEFAULT 1, `alternateCourseCardColorMode` TEXT NOT NULL DEFAULT 'SOLID', `alternateCourseCardPalette` TEXT NOT NULL DEFAULT '', `weekCardHeightDp` REAL, `weekCardHeightScale` REAL NOT NULL DEFAULT 1, `weekCardCornerProgress` REAL NOT NULL DEFAULT 0.5, `homeTextLight` INTEGER NOT NULL, `homeChromeBlurScale` REAL NOT NULL DEFAULT 1, `homeChromeSamplingScale` REAL NOT NULL DEFAULT 1, `followSystemDarkMode` INTEGER NOT NULL, `darkMode` INTEGER NOT NULL, `defaultWallpaperStyle` TEXT NOT NULL, `hideEmptyWeekends` INTEGER NOT NULL, `scheduleAdjustmentsJson` TEXT NOT NULL DEFAULT '', `dockAlignment` TEXT NOT NULL, `defaultHomeMode` TEXT NOT NULL, `liveUpdateActionsEnabled` INTEGER NOT NULL, `liveUpdateChipTextMode` TEXT NOT NULL, `classDurationMinutes` INTEGER NOT NULL, `breakDurationMinutes` INTEGER NOT NULL, `morningPeriodCount` INTEGER NOT NULL DEFAULT 0, `noonPeriodCount` INTEGER NOT NULL DEFAULT 0, `afternoonPeriodCount` INTEGER NOT NULL DEFAULT 0, `eveningPeriodCount` INTEGER NOT NULL DEFAULT 0, `hideFromRecents` INTEGER NOT NULL, `autoCheckUpdates` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -410,6 +410,13 @@
             "columnName": "hideEmptyWeekends",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "scheduleAdjustmentsJson",
+            "columnName": "scheduleAdjustmentsJson",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
           },
           {
             "fieldPath": "dockAlignment",
@@ -871,7 +878,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7057c6f199a57bbd41eac65ba357f307')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c30c7d5aa8a4dca02d4d7603eef940ac')"
     ]
   }
 }

@@ -9,6 +9,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IcsScheduleCodecTest {
+    @Test fun exportUsesEffectiveMappedLessonsAndExactPartialCustomClocks() {
+        val config = defaultConfig().copy(autoCurrentWeek = true, termStartDate = "2026-09-07", totalWeeks = 1)
+        val bells = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "08:55", "09:40"))
+        val raw = CourseEntity(7, "课程", null, null, 1, listOf(1, 2, 3), listOf(1), WeekParity.ALL, null,
+            customPeriodTimes = "3,12:01-12:29", originalPeriodTimes = "1,08:00-08:45;2,08:55-09:40;3,10:00-10:45")
+        val projected = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, config, bells)
+        val text = IcsScheduleCodec.export("测试", config, bells, listOf(projected), LocalDate.parse("2026-09-07"))
+        assertTrue(text.contains("20260907T080000"))
+        assertTrue(text.contains("20260907T094000"))
+        assertTrue(text.contains("20260907T120100"))
+        assertTrue(text.contains("20260907T122900"))
+        val imported = IcsScheduleCodec.parse(text.toByteArray(), defaultConfig()).getOrThrow()
+        assertTrue(imported.courses.isNotEmpty())
+    }
     @Test
     fun parseWeeklyEventCreatesWeeksAndPeriods() {
         val ics = """
@@ -110,5 +124,39 @@ class IcsScheduleCodecTest {
         } finally {
             TimeZone.setDefault(previous)
         }
+    }
+
+    @Test
+    fun customTimeCalendarRoundTripKeepsCourseClockIndependentOfPeriodBells() {
+        val config = defaultConfig().copy(totalWeeks = 2, termStartDate = "2026-09-07")
+        val periods = listOf(
+            PeriodEntity(1, "08:20", "09:00"),
+            PeriodEntity(2, "09:15", "09:55"),
+            PeriodEntity(3, "10:20", "11:00"),
+            PeriodEntity(4, "11:15", "11:55")
+        )
+        val course = CourseEntity(
+            id = 70,
+            name = "数控机床加工技术与实践",
+            teacher = null,
+            location = "实训中心",
+            weekday = 3,
+            periods = listOf(3, 4),
+            weeks = listOf(1, 2),
+            weekParity = WeekParity.ALL,
+            note = null,
+            customStartTime = "10:10",
+            customEndTime = "11:45",
+            customPeriodTimes = "3,10:10-10:50;4,11:05-11:45"
+        )
+
+        val exported = IcsScheduleCodec.export("真实时间", config, periods, listOf(course), LocalDate.of(2026, 9, 7))
+        val restored = IcsScheduleCodec.parse(exported.toByteArray(), defaultConfig()).getOrThrow().courses.single()
+
+        assertEquals(listOf(3, 4), restored.periods)
+        assertEquals(listOf(1, 2), restored.weeks)
+        assertEquals("10:10", restored.customStartTime)
+        assertEquals("11:45", restored.customEndTime)
+        assertEquals(course.customPeriodTimes, restored.customPeriodTimes)
     }
 }

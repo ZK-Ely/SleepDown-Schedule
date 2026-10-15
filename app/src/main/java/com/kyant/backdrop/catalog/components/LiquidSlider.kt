@@ -2,8 +2,6 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -21,7 +19,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,7 +28,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,6 +59,8 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -70,7 +68,6 @@ import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 internal enum class LiquidSliderPhase {
     Idle,
@@ -332,8 +329,12 @@ fun LiquidSlider(
     modifier: Modifier = Modifier,
     compactThumb: Boolean = false
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSliderRenderer.current?.invoke(
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSliderRequest(
+                value, valueRange, onPreviewValueChange, onPreviewModeChange, onCommit, modifier, snapValue
+            )) == true) return
     val isLightTheme = !isSystemInDarkTheme()
-    val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
+    val accentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
     val trackColor = if (isLightTheme) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
     val trackBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.ChromeCombined,
@@ -552,6 +553,8 @@ fun LiquidSlider(
                         ),
                         descriptor = descriptor,
                         material = material,
+                        fallbackColor = Color.White,
+                        fallbackOpacity = 1f,
                         shape = { Capsule() },
                         effectFrame = GlassEffectFrame(blur = null),
                         effectsOverride = {
