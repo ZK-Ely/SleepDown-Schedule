@@ -16,6 +16,8 @@ internal fun staticWidgetPreview(context: Context, type: WidgetAppearanceVariant
     WidgetAppearanceVariant.TODAY_TOMORROW -> R.layout.widget_preview_today_tomorrow
     WidgetAppearanceVariant.TODAY_ASSISTANT -> R.layout.widget_preview_today_assistant
     WidgetAppearanceVariant.WEEK_SCHEDULE -> R.layout.widget_preview_week_schedule
+    // [fork] agenda 组件暂无独立预览布局，钉选预览复用周视图卡片轮廓
+    WidgetAppearanceVariant.AGENDA -> R.layout.widget_preview_week_schedule
 })
 
 /** Pin dialogs have no installed widget size; give the host one bounded, intrinsically sized image. */

@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.widget.providers
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -25,6 +26,7 @@ import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+import com.xiaomanjun.sleepdownschedule.courseEndTime
 import com.xiaomanjun.sleepdownschedule.courseStartTime
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
@@ -33,11 +35,13 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.visibleWeekdaysForBucke
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceEntity
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceVariant
+import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetBackgroundRenderer
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCourseColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetDefaultAppearanceId
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetRenderSize
 import com.xiaomanjun.sleepdownschedule.feature.widget.readableWidgetTextColor
 import com.xiaomanjun.sleepdownschedule.feature.widget.widgetRenderSize
+import com.xiaomanjun.sleepdownschedule.scheduleTermStatusLabel
 import com.xiaomanjun.sleepdownschedule.scheduleWeekForDateOrNull
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
 import java.time.LocalDate

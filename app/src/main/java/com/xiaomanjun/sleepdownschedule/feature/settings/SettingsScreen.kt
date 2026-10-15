@@ -482,5 +482,7 @@ private fun SettingsPageContent(
         )
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)
+        // [fork] 教务特殊同步设置页（实现在 SpecialSyncSettingsUi.kt）
+        SettingsPage.SpecialSync -> SpecialSyncSettingsScreen(pageState, backdrop)
     }
 }

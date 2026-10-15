@@ -62,6 +62,27 @@
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。
 - 删除或移动前确认精确目标；破坏性操作必须有授权，不删除任务外文件。
 
+## 上游同步（本 fork）
+
+本仓库是 `xiaomanjun233/SleepDown-Schedule` 的修改版（远端 `origin` 为 fork，`upstream` 为上游）。独有功能：OCR 验证码识别、教务特殊同步、agenda 组件、周视图冲突堆叠卡、勿扰关闭守卫、applicationId `.zk`。
+
+**钩子分离原则**（新增功能时遵守，同步时依赖）：
+
+- fork 功能实现集中在 fork 专属文件（`Fork*` 前缀或 fork 功能目录如 `feature/importing/special/`）；上游共享文件只保留带 `[fork]` 注释标记的最小调用行（目标 ≤5 行）。
+- 上游文件内无法抽出的行为修改（如替换冲突胶囊为堆叠卡）在改动处留 `[fork]` 注释说明替代关系。
+- 用 `git grep "\[fork\]" -- app/src` 列出全部钩子点；同步冲突应只落在这些标记处，逐个核对即可，不做全文件人工移植。
+- fork 独有新增文件与上游无冲突，合并后只需确认接线（Manifest、注册点、import 路径是否被上游移动）。
+
+**同步流程**：
+
+1. `git fetch upstream` 后在 `codex/merge-<日期>` 分支执行 `git merge upstream/main`；先用 `git merge-tree --write-tree main upstream/main` 预演冲突面。
+2. 冲突解决取上游结构，把本地钩子移植进上游新位置；上游删除而本地修改的文件，先确认本地改动是否已被上游等价实现（如密码掩码），已被覆盖则跟随删除。
+3. 数据库：合并后 `APP_DATABASE_VERSION` 取两侧较大值；本仓库历史版本若与上游同号不同构（如历史上的 40/41 碰撞），在上游迁移函数内用 `hasColumn` 守卫兜底，并在下一版本迁移中覆盖本 fork 存量用户，schema JSON 跟随上游。
+4. 包名保持 `com.xiaomanjun.sleepdownschedule.zk`，版本号与 `versionCode` 跟随上游。
+5. 完成后 `git grep "\[fork\]"` 核对接线，再按验证表编译。
+
+**Miuix 补丁**：工程依赖上游仓库 `patches/miuix-0.9.3-sleepdown.patch` 补丁过的 Miuix 源（`sleepdown.miuixSourcePath` 指向本地 checkout）。上游更新补丁或 GlassMiuix 等调用新 API 报"参数不存在"时，按上游 README 重新 clone 官方 `v0.9.3` 并应用最新 patch 到全新目录，再更新 `gradle.properties` 路径；不要在旧补丁目录重复应用。
+
 ## 验证与安装
 
 根据修改风险执行最小充分验证，不为局部改动无意义地重复全套任务：

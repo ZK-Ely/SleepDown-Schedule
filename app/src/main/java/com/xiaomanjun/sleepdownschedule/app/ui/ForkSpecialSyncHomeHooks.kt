@@ -11,24 +11,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeIconButton
-import com.xiaomanjun.sleepdownschedule.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LifecycleEventObserver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeIconButton
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncAutoRefresher
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.special.SpecialSyncCoordinator
@@ -55,10 +56,14 @@ internal class ForkSpecialSyncHomeController internal constructor(
 
     // 手动验证码弹窗状态：自动识别三次失败后拉新图弹窗
     var captchaVisible: Boolean by mutableStateOf(false)
-        private set
+        internal set
 
     var captchaBytes: ByteArray? by mutableStateOf(null)
         private set
+
+    internal fun dismissCaptcha() {
+        captchaVisible = false
+    }
 
     /** 特殊同步课表：启用中、存在已记录的课表 ID，且当前正在显示该课表 */
     fun isActiveFor(config: ScheduleConfigEntity): Boolean =
@@ -114,7 +119,7 @@ internal fun rememberForkSpecialSyncHomeController(): ForkSpecialSyncHomeControl
     var prefsVersion by remember { mutableIntStateOf(0) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME) {
                 prefsVersion++
                 scope.launch {
                     runCatching { SpecialSyncAutoRefresher.tick(context) }
@@ -154,10 +159,10 @@ internal fun ForkSpecialSyncCaptchaDialogs(
             config = config,
             onRefresh = { controller.showCaptchaDialog() },
             onSubmit = { code ->
-                controller.captchaVisible = false
+                controller.dismissCaptcha()
                 controller.runSync(manualCaptchaText = code)
             },
-            onDismiss = { controller.captchaVisible = false }
+            onDismiss = { controller.dismissCaptcha() }
         )
     }
 }
@@ -186,7 +191,7 @@ internal fun ForkSpecialSyncTopBarAction(
             contentDescription = "同步特殊课表",
             selected = false,
             visible = !specialSyncRefreshing,
-            onClick = onSpecialSyncRefresh
+            onClick = { onSpecialSyncRefresh() }
         )
         if (specialSyncRefreshing) {
             CircularProgressIndicator(
